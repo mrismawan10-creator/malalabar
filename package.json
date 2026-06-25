@@ -1,0 +1,19 @@
+{
+  "name": "malalabar",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "db:generate": "pnpm --filter @malalabar/db generate",
+    "db:migrate": "pnpm --filter @malalabar/db migrate",
+    "db:seed": "pnpm --filter @malalabar/db seed",
+    "db:studio": "pnpm --filter @malalabar/db studio"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3"
+  }
+}

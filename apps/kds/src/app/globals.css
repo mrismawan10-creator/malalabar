@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --accent: #FFD23D;
+  --accent-ink: #E2A400;
+}
+
+html,
+body {
+  overflow: hidden;
+  height: 100%;
+}

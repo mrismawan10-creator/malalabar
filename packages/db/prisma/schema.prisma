@@ -1,0 +1,374 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// STAFF & AUTH
+// ============================================================
+
+enum StaffRole {
+  SUPERADMIN
+  ADMIN
+  CASHIER
+}
+
+model StaffUser {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         StaffRole
+  isSuspended  Boolean   @default(false)
+  mustReset    Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  auditLogs      AuditLog[]
+  payments       Payment[]  @relation("PaymentConfirmedBy")
+  approvedOrders Order[]    @relation("OrderApprovedBy")
+
+  @@map("staff_users")
+}
+
+model KitchenDevice {
+  id         String    @id @default(cuid())
+  label      String
+  tokenHash  String    @unique
+  isActive   Boolean   @default(true)
+  lastSeenAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@map("kitchen_devices")
+}
+
+// ============================================================
+// TABLES & QR
+// ============================================================
+
+model RestaurantTable {
+  id           String   @id @default(cuid())
+  number       String
+  area         String?
+  isActive     Boolean  @default(true)
+  qrToken      String   @unique
+  tokenVersion Int      @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions TableSession[]
+
+  @@unique([number, area])
+  @@map("restaurant_tables")
+}
+
+// ============================================================
+// MENU
+// ============================================================
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String
+  icon      String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  menuItems MenuItem[]
+
+  @@map("categories")
+}
+
+model MenuItem {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  imageUrl    String?
+  basePrice   Int
+  isAvailable Boolean  @default(true)
+  isDeleted   Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  categoryId  String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category            Category             @relation(fields: [categoryId], references: [id])
+  customizationGroups CustomizationGroup[]
+  promo               Promo?
+  orderItems          OrderItem[]
+
+  @@index([categoryId])
+  @@index([isAvailable, isDeleted])
+  @@map("menu_items")
+}
+
+enum CustomizationType {
+  SINGLE_SELECT
+  MULTI_SELECT
+}
+
+model CustomizationGroup {
+  id         String            @id @default(cuid())
+  menuItemId String
+  name       String
+  type       CustomizationType
+  isRequired Boolean           @default(false)
+  sortOrder  Int               @default(0)
+
+  menuItem MenuItem              @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  options  CustomizationOption[]
+
+  @@index([menuItemId])
+  @@map("customization_groups")
+}
+
+model CustomizationOption {
+  id             String @id @default(cuid())
+  groupId        String
+  name           String
+  surchargePrice Int    @default(0)
+  sortOrder      Int    @default(0)
+
+  group CustomizationGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@map("customization_options")
+}
+
+// ============================================================
+// PROMO  (one active promo per item — enforced by unique menuItemId)
+// ============================================================
+
+model Promo {
+  id         String   @id @default(cuid())
+  menuItemId String   @unique
+  label      String?
+  promoPrice Int
+  isActive   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@index([isActive])
+  @@map("promos")
+}
+
+// ============================================================
+// ORDER STATUS FLOW  (data-driven — PRD 4.7.3)
+// ============================================================
+
+enum StageSemantic {
+  AWAITING_CONFIRMATION
+  ACCEPTED
+  IN_PROGRESS
+  READY
+  CUSTOM
+}
+
+model OrderStatusStage {
+  id          String        @id @default(cuid())
+  semanticKey StageSemantic
+  label       String
+  description String?
+  sortOrder   Int
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+
+  ordersCurrent Order[]             @relation("OrderCurrentStage")
+  history       OrderStatusHistory[]
+
+  @@index([sortOrder])
+  @@map("order_status_stages")
+}
+
+// ============================================================
+// SESSION & ORDERS
+// ============================================================
+
+enum SessionStatus {
+  OPEN
+  PAID
+  CLOSED_TIMEOUT
+  CLOSED_FORCED
+}
+
+model TableSession {
+  id             String        @id @default(cuid())
+  tableId        String
+  status         SessionStatus @default(OPEN)
+  openedAt       DateTime      @default(now())
+  lastActivityAt DateTime      @default(now())
+  closedAt       DateTime?
+  closedReason   String?
+
+  table   RestaurantTable @relation(fields: [tableId], references: [id])
+  orders  Order[]
+  payment Payment?
+
+  // one OPEN session per table — enforced via partial unique index (see migration)
+  @@index([tableId, status])
+  @@map("table_sessions")
+}
+
+model Order {
+  id             String    @id @default(cuid())
+  sessionId      String
+  batchNumber    Int
+  currentStageId String
+  rejected       Boolean   @default(false)
+  rejectReason   String?
+  approvedById   String?
+  acceptedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  session       TableSession        @relation(fields: [sessionId], references: [id])
+  currentStage  OrderStatusStage    @relation("OrderCurrentStage", fields: [currentStageId], references: [id])
+  approvedBy    StaffUser?          @relation("OrderApprovedBy", fields: [approvedById], references: [id])
+  items         OrderItem[]
+  statusHistory OrderStatusHistory[]
+
+  @@unique([sessionId, batchNumber])
+  @@index([sessionId])
+  @@index([currentStageId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id             String  @id @default(cuid())
+  orderId        String
+  menuItemId     String?
+  nameSnapshot   String
+  unitBasePrice  Int
+  unitPromoPrice Int?
+  quantity       Int
+  note           String?
+  lineTotal      Int
+
+  order          Order                    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem       MenuItem?                @relation(fields: [menuItemId], references: [id])
+  customizations OrderItemCustomization[]
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model OrderItemCustomization {
+  id                 String @id @default(cuid())
+  orderItemId        String
+  groupNameSnapshot  String
+  optionNameSnapshot String
+  surchargeSnapshot  Int    @default(0)
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@index([orderItemId])
+  @@map("order_item_customizations")
+}
+
+model OrderStatusHistory {
+  id        String   @id @default(cuid())
+  orderId   String
+  stageId   String
+  actorType String
+  actorId   String?
+  createdAt DateTime @default(now())
+
+  order Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  stage OrderStatusStage @relation(fields: [stageId], references: [id])
+
+  @@index([orderId])
+  @@map("order_status_history")
+}
+
+// ============================================================
+// PAYMENT
+// ============================================================
+
+enum PaymentMethod {
+  CASH
+  CARD
+  ONLINE
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  EXPIRED
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  sessionId       String        @unique
+  method          PaymentMethod
+  status          PaymentStatus @default(PENDING)
+  subtotal        Int
+  taxAmount       Int           @default(0)
+  serviceAmount   Int           @default(0)
+  totalAmount     Int
+  cashReceived    Int?
+  changeAmount    Int?
+  midtransOrderId String?       @unique
+  midtransToken   String?
+  midtransRaw     Json?
+  confirmedById   String?
+  paidAt          DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  session     TableSession @relation(fields: [sessionId], references: [id])
+  confirmedBy StaffUser?   @relation("PaymentConfirmedBy", fields: [confirmedById], references: [id])
+
+  @@index([status])
+  @@map("payments")
+}
+
+// ============================================================
+// SYSTEM SETTINGS (single row) & AUDIT
+// ============================================================
+
+model SystemSettings {
+  id                 String   @id @default("singleton")
+  restaurantName     String
+  logoUrl            String?
+  description        String?
+  openingHours       Json?
+  taxPercent         Int      @default(0)
+  taxEnabled         Boolean  @default(false)
+  servicePercent     Int      @default(0)
+  serviceEnabled     Boolean  @default(false)
+  primaryColor       String   @default("#000000")
+  sessionTimeoutMins Int      @default(90)
+  cashEnabled        Boolean  @default(true)
+  cardEnabled        Boolean  @default(true)
+  onlineEnabled      Boolean  @default(true)
+  updatedAt          DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorType  String
+  actorId    String?
+  action     String
+  entityType String?
+  entityId   String?
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  staffUser StaffUser? @relation(fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

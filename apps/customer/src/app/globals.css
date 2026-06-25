@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --accent: #FFD23D;
+  --accent-ink: #E2A400;
+}
+
+body {
+  background: linear-gradient(180deg, #7FC2F1 0%, #B6DFFA 48%, #E7F4FF 100%);
+  min-height: 100dvh;
+}

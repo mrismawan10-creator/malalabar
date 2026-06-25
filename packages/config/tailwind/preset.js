@@ -1,0 +1,80 @@
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  theme: {
+    extend: {
+      colors: {
+        ink: {
+          DEFAULT: "#16308C",
+          line: "#14296E",
+          strong: "#0F2570",
+          muted: "#173BA6",
+          soft: "#5B7BB0",
+        },
+        surface: {
+          page: "#E7F4FF",
+          raised: "#FFFFFF",
+          sunken: "#EAF6FF",
+          line: "#C7E4FA",
+        },
+        sky: { 1: "#7FC2F1", 2: "#B6DFFA", 3: "#E7F4FF" },
+        accent: {
+          DEFAULT: "var(--accent, #FFD23D)",
+          ink: "var(--accent-ink, #E2A400)",
+        },
+        pop: { DEFAULT: "#FF8FB8", ink: "#D45C86" },
+        success: { DEFAULT: "#2E9E5B", ink: "#1F7A45" },
+        warning: { DEFAULT: "#FFD23D", ink: "#E2A400" },
+        danger: { DEFAULT: "#E5484D", ink: "#C13438" },
+        muted: {
+          bg: "#DCE5F1",
+          border: "#A6B8D6",
+          text: "#9BABC7",
+          shadow: "#CFDBEC",
+        },
+        soldout: { card: "#EEF3F9", name: "#7C8BA8", text: "#9AA9C2" },
+      },
+      fontFamily: {
+        display: ["Anton", "sans-serif"],
+        ui: ["Fredoka", "sans-serif"],
+        script: ["Caveat", "cursive"],
+      },
+      fontSize: {
+        micro: ["11px", "1.2"],
+        xs: ["12px", "1.3"],
+        sm: ["13px", "1.35"],
+        base: ["16px", "1.45"],
+        lg: ["18px", "1.25"],
+        xl: ["21px", "1.2"],
+        "2xl": ["25px", "1.1"],
+        display: ["48px", "1.0"],
+        hero: ["76px", "0.9"],
+      },
+      borderRadius: {
+        sm: "8px",
+        md: "12px",
+        lg: "14px",
+        xl: "18px",
+        "2xl": "22px",
+      },
+      borderWidth: { 3: "3px" },
+      boxShadow: {
+        "hard-sm": "2px 2px 0 #14296E",
+        hard: "3px 3px 0 #14296E",
+        "hard-md": "4px 4px 0 #14296E",
+        "hard-lg": "5px 5px 0 #14296E",
+        "hard-navy-lg": "5px 5px 0 #0F2570",
+        "soft-disabled": "4px 4px 0 #CFDBEC",
+      },
+      spacing: {
+        1: "4px",
+        2: "8px",
+        3: "12px",
+        4: "16px",
+        5: "20px",
+        6: "24px",
+        8: "32px",
+      },
+    },
+  },
+  plugins: [],
+};

@@ -54,4 +54,19 @@ export const cashierRoutes: FastifyPluginAsync<Options> = async (
   app.get("/cashier/active-tables", { preHandler: guard }, async () => {
     return cashierService.getActiveTables();
   });
+
+  app.post(
+    "/cashier/payments/:paymentId/confirm",
+    { preHandler: guard },
+    async (request) => {
+      const { paymentId } = z
+        .object({ paymentId: z.string().min(1) })
+        .parse(request.params);
+
+      const staffId = (request as any).staffId;
+      const ipAddress = request.ip;
+
+      return cashierService.confirmPayment(paymentId, staffId, ipAddress);
+    },
+  );
 };

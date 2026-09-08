@@ -3,6 +3,7 @@ import type {
   ApproveOrderResponse,
   OrderDetailForApproval,
   PendingOrdersResponse,
+  PaymentConfirmationResponse,
   RejectOrderResponse,
 } from "@malalabar/types";
 import { AppError } from "../lib/errors.js";
@@ -25,6 +26,11 @@ export interface CashierService {
     ipAddress?: string,
   ): Promise<RejectOrderResponse>;
   getActiveTables(): Promise<ActiveTablesResponse>;
+  confirmPayment(
+    paymentId: string,
+    staffId: string,
+    ipAddress?: string,
+  ): Promise<PaymentConfirmationResponse>;
 }
 
 export function createCashierService(deps: {
@@ -188,6 +194,106 @@ export function createCashierService(deps: {
     async getActiveTables() {
       const tables = await deps.orderRepository.findActiveTables();
       return { tables };
+    },
+
+    async confirmPayment(paymentId, staffId, ipAddress) {
+      // Fetch payment and session
+      const payment = await deps.prisma.payment.findUnique({
+        where: { id: paymentId },
+        select: {
+          id: true,
+          status: true,
+          method: true,
+          totalAmount: true,
+          sessionId: true,
+          session: { select: { status: true, table: { select: { number: true } } } },
+        },
+      });
+
+      if (!payment) {
+        throw new AppError("PAYMENT_NOT_FOUND", "Pembayaran tidak ditemukan", 404);
+      }
+
+      if (payment.status !== "PENDING") {
+        throw new AppError(
+          "PAYMENT_NOT_PENDING",
+          "Pembayaran sudah diproses sebelumnya",
+          409,
+        );
+      }
+
+      if (payment.method === "ONLINE") {
+        throw new AppError(
+          "PAYMENT_METHOD_ERROR",
+          "Pembayaran ONLINE harus dikonfirmasi via webhook Midtrans",
+          422,
+        );
+      }
+
+      const now = new Date();
+
+      // Update payment status to PAID
+      const updated = await deps.prisma.payment.update({
+        where: { id: paymentId },
+        data: {
+          status: "PAID",
+          paidAt: now,
+        },
+        select: {
+          id: true,
+          method: true,
+          status: true,
+          totalAmount: true,
+          paidAt: true,
+        },
+      });
+
+      // Close session
+      await deps.prisma.tableSession.update({
+        where: { id: payment.sessionId },
+        data: { status: "PAID", closedAt: now },
+      });
+
+      // Write audit log
+      await deps.prisma.auditLog.create({
+        data: {
+          actorType: "STAFF",
+          actorId: staffId,
+          action: "CONFIRM_PAYMENT",
+          entityType: "PAYMENT",
+          entityId: paymentId,
+          metadata: { method: payment.method, amount: payment.totalAmount },
+          ipAddress,
+        },
+      });
+
+      // Emit realtime events
+      const transactionId = `TXN-${paymentId.slice(0, 8)}-${Date.now()}`;
+      deps.gateway.paymentConfirmed({
+        sessionId: payment.sessionId,
+        paymentId,
+        method: payment.method,
+        totalAmount: payment.totalAmount,
+        paidAt: updated.paidAt?.toISOString() ?? now.toISOString(),
+        transactionId,
+      });
+
+      deps.gateway.sessionClosed({
+        sessionId: payment.sessionId,
+        tableNumber: payment.session.table.number,
+        reason: "PAID",
+      });
+
+      return {
+        payment: {
+          id: updated.id,
+          method: updated.method,
+          status: updated.status as any,
+          totalAmount: updated.totalAmount,
+          confirmedAt: updated.paidAt?.toISOString() ?? now.toISOString(),
+        },
+        sessionClosed: true,
+      };
     },
   };
 }

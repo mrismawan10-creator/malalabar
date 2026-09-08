@@ -48,3 +48,18 @@ export type PaymentInitiationResponse =
   | PaymentInitiationCashCardResponse
   | PaymentInitiationOnlineResponse;
 
+/**
+ * Confirm cash/card payment (T4.2 — cashier confirms after receiving payment)
+ */
+export interface PaymentConfirmationRequest {
+  amountReceived?: number; // For cash change calculation; omitted for card
+}
+
+/**
+ * Payment confirmation response
+ */
+export interface PaymentConfirmationResponse {
+  payment: PaymentInfo & { confirmedAt: string };
+  sessionClosed: boolean;
+}
+

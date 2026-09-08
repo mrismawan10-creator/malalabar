@@ -1,5 +1,10 @@
 import type { StaffRole } from "@malalabar/types";
-import { verifyCustomerSessionToken } from "../lib/tokens.js";
+import {
+  verifyCustomerSessionToken,
+  verifyStaffToken,
+  verifyKdsToken,
+  TokenError,
+} from "../lib/tokens.js";
 import type { SocketPrincipal } from "./principal.js";
 
 /**
@@ -22,9 +27,9 @@ function isStaffRole(value: string): value is StaffRole {
 /**
  * The socket handshake accepts the same tokens HTTP does (Realtime_Events §1).
  *
- * Customer tokens are verified for real (T1.3). Staff and KDS tokens do not
- * exist yet — T3.1 and T3.2 mint them — so those still fall through to the dev
- * stub below, which is inert in production.
+ * Customer tokens are verified for real (T1.3). Staff and KDS tokens are
+ * verified using real JWTs from T3.1/T3.2. Development stub falls back for
+ * backwards compatibility, inert in production.
  *
  * The principal decides the rooms, so a customer socket can only ever land in
  * its own `session:{sub}` (Auth_RBAC_Spec §3).
@@ -43,7 +48,28 @@ export function createSocketTokenVerifier(
         tableId: claims.tableId,
       };
     } catch {
-      // Not a customer token — may still be a dev staff/KDS one.
+      // Not a customer token — try staff
+    }
+
+    try {
+      const claims = verifyStaffToken(token);
+      return {
+        type: "staff_access",
+        staffId: claims.sub,
+        role: claims.role,
+      };
+    } catch {
+      // Not a staff token — try KDS
+    }
+
+    try {
+      const claims = verifyKdsToken(token);
+      return {
+        type: "kds_device",
+        deviceId: claims.sub,
+      };
+    } catch {
+      // Not a real token — may still be a dev one
     }
 
     return stub(token) as SocketPrincipal | null;

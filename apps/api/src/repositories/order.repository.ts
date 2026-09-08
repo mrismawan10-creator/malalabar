@@ -82,6 +82,44 @@ export interface SessionOrderRow {
   items: PersistedOrderRow["items"];
 }
 
+export interface CashierOrderRow {
+  id: string;
+  tableNumber: string;
+  batchNumber: number;
+  itemCount: number;
+  estimatedTotal: number;
+  createdAt: string;
+}
+
+export interface OrderApprovalRow {
+  id: string;
+  tableNumber: string;
+  batchNumber: number;
+  items: Array<{
+    nameSnapshot: string;
+    unitBasePrice: number;
+    unitPromoPrice: number | null;
+    quantity: number;
+    note: string | null;
+    lineTotal: number;
+    customizations: Array<{
+      groupNameSnapshot: string;
+      optionNameSnapshot: string;
+      surchargeSnapshot: number;
+    }>;
+  }>;
+  estimatedTotal: number;
+  createdAt: string;
+}
+
+export interface ActiveTableRow {
+  sessionId: string;
+  tableNumber: string;
+  orderCount: number;
+  readyCount: number;
+  unpaidTotal: number;
+}
+
 export interface OrderRepository {
   /** Soft-deleted items are omitted, so they read as "not on the menu". */
   findMenuItemsForOrder(ids: string[]): Promise<OrderMenuItemRow[]>;
@@ -98,6 +136,23 @@ export interface OrderRepository {
    * precisely because it can only be made safe inside the write transaction.
    */
   persistOrder(input: PersistOrderInput): Promise<PersistedOrderRow>;
+  /** Pending orders awaiting cashier approval, oldest first */
+  findPendingOrders(): Promise<CashierOrderRow[]>;
+  /** Full order detail for approval, with items and current stage */
+  findOrderById(orderId: string): Promise<OrderApprovalRow | null>;
+  /** Approve an order: move to ACCEPTED stage, set acceptedAt and approvedById */
+  approveOrder(
+    orderId: string,
+    approvedById: string,
+    acceptedStageId: string,
+  ): Promise<{ id: string; currentStage: StageRow }>;
+  /** Reject an order with a reason */
+  rejectOrder(
+    orderId: string,
+    reason: string,
+  ): Promise<{ id: string; rejected: boolean; rejectReason: string | null }>;
+  /** Active tables with unpaid totals */
+  findActiveTables(): Promise<ActiveTableRow[]>;
 }
 
 export function createPrismaOrderRepository(
@@ -253,6 +308,151 @@ export function createPrismaOrderRepository(
         });
 
         return order;
+      });
+    },
+
+    async findPendingOrders() {
+      const awaitingStage = await prisma.orderStatusStage.findFirst({
+        where: { semanticKey: "AWAITING_CONFIRMATION", isActive: true },
+      });
+      if (!awaitingStage) return [];
+
+      const orders = await prisma.order.findMany({
+        where: { currentStageId: awaitingStage.id, rejected: false },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          batchNumber: true,
+          createdAt: true,
+          session: { select: { table: { select: { number: true } } } },
+          items: { select: { id: true, lineTotal: true } },
+        },
+      });
+
+      return orders.map((o) => ({
+        id: o.id,
+        tableNumber: o.session.table.number,
+        batchNumber: o.batchNumber,
+        itemCount: o.items.length,
+        estimatedTotal: o.items.reduce((sum, item) => sum + item.lineTotal, 0),
+        createdAt: o.createdAt.toISOString(),
+      }));
+    },
+
+    async findOrderById(orderId) {
+      const row = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: {
+          id: true,
+          batchNumber: true,
+          createdAt: true,
+          session: { select: { table: { select: { number: true } } } },
+          items: {
+            select: {
+              nameSnapshot: true,
+              unitBasePrice: true,
+              unitPromoPrice: true,
+              quantity: true,
+              note: true,
+              lineTotal: true,
+              customizations: {
+                select: {
+                  groupNameSnapshot: true,
+                  optionNameSnapshot: true,
+                  surchargeSnapshot: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!row) return null;
+
+      const estimatedTotal = row.items.reduce((sum, item) => sum + item.lineTotal, 0);
+
+      return {
+        id: row.id,
+        tableNumber: row.session.table.number,
+        batchNumber: row.batchNumber,
+        items: row.items,
+        estimatedTotal,
+        createdAt: row.createdAt.toISOString(),
+      };
+    },
+
+    async approveOrder(orderId, approvedById, acceptedStageId) {
+      return prisma.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          select: { currentStage: { select: { semanticKey: true } } },
+        });
+
+        if (order?.currentStage.semanticKey !== "AWAITING_CONFIRMATION") {
+          throw new Error("ORDER_NOT_PENDING");
+        }
+
+        const updated = await tx.order.update({
+          where: { id: orderId },
+          data: { currentStageId: acceptedStageId, approvedById, acceptedAt: new Date() },
+          select: {
+            id: true,
+            currentStage: {
+              select: { id: true, label: true, semanticKey: true, sortOrder: true },
+            },
+          },
+        });
+
+        // Add status history (State_Machine §1.4)
+        await tx.orderStatusHistory.create({
+          data: { orderId, stageId: acceptedStageId, actorType: "STAFF", actorId: approvedById },
+        });
+
+        return updated;
+      });
+    },
+
+    async rejectOrder(orderId, reason) {
+      return prisma.order.update({
+        where: { id: orderId },
+        data: { rejected: true, rejectReason: reason },
+        select: { id: true, rejected: true, rejectReason: true },
+      });
+    },
+
+    async findActiveTables() {
+      const openSessions = await prisma.tableSession.findMany({
+        where: { status: "OPEN" },
+        select: {
+          id: true,
+          table: { select: { number: true } },
+          orders: {
+            where: { rejected: false },
+            select: {
+              id: true,
+              currentStage: { select: { semanticKey: true } },
+              items: { select: { lineTotal: true } },
+            },
+          },
+        },
+      });
+
+      return openSessions.map((session) => {
+        const readyCount = session.orders.filter(
+          (o) => o.currentStage.semanticKey === "READY",
+        ).length;
+        const unpaidTotal = session.orders.reduce(
+          (sum, order) => sum + order.items.reduce((s, item) => s + item.lineTotal, 0),
+          0,
+        );
+
+        return {
+          sessionId: session.id,
+          tableNumber: session.table.number,
+          orderCount: session.orders.length,
+          readyCount,
+          unpaidTotal,
+        };
       });
     },
   };

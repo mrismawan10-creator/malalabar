@@ -187,6 +187,96 @@ export function createFakeOrderRepository(options: {
 
       return row;
     },
+
+    async findPendingOrders() {
+      return persisted
+        .filter(
+          (o) =>
+            !o.rejected && o.currentStage.semanticKey === "AWAITING_CONFIRMATION",
+        )
+        .map((o) => ({
+          id: o.id,
+          tableNumber: "1",
+          batchNumber: o.batchNumber,
+          itemCount: o.items.length,
+          estimatedTotal: o.items.reduce((sum, item) => sum + item.lineTotal, 0),
+          createdAt: o.createdAt.toISOString(),
+        }));
+    },
+
+    async findOrderById(orderId: string) {
+      const order = persisted.find((o) => o.id === orderId);
+      if (!order) return null;
+      return {
+        id: order.id,
+        tableNumber: "1",
+        batchNumber: order.batchNumber,
+        items: order.items,
+        estimatedTotal: order.items.reduce((sum, item) => sum + item.lineTotal, 0),
+        createdAt: order.createdAt.toISOString(),
+      };
+    },
+
+    async approveOrder(
+      orderId: string,
+      approvedById: string,
+      acceptedStageId: string,
+    ) {
+      const order = persisted.find((o) => o.id === orderId);
+      if (!order)
+        throw new Error(`ORDER_NOT_FOUND: ${orderId}`);
+      if (order.currentStage.semanticKey !== "AWAITING_CONFIRMATION")
+        throw new Error("ORDER_NOT_PENDING");
+
+      const acceptedStage: StageRow = {
+        id: acceptedStageId,
+        label: "Diterima",
+        semanticKey: "ACCEPTED",
+        sortOrder: 2,
+      };
+      order.currentStage = acceptedStage;
+
+      history.push({
+        orderId,
+        stageId: acceptedStageId,
+        actorType: "STAFF",
+      });
+
+      return { id: orderId, currentStage: acceptedStage };
+    },
+
+    async rejectOrder(orderId: string, reason: string) {
+      const order = persisted.find((o) => o.id === orderId);
+      if (!order) throw new Error(`ORDER_NOT_FOUND: ${orderId}`);
+      order.rejected = true;
+      order.rejectReason = reason;
+      return { id: orderId, rejected: true, rejectReason: reason };
+    },
+
+    async findActiveTables() {
+      const tableMap = new Map<string, typeof persisted[0][]>();
+      persisted.forEach((o) => {
+        const key = o.sessionId;
+        if (!tableMap.has(key)) tableMap.set(key, []);
+        tableMap.get(key)!.push(o);
+      });
+
+      return Array.from(tableMap.entries()).map(([sessionId, orders]) => {
+        const active = orders.filter((o) => !o.rejected);
+        const ready = active.filter((o) => o.currentStage.semanticKey === "READY").length;
+        const total = active.reduce(
+          (sum, o) => sum + o.items.reduce((s, i) => s + i.lineTotal, 0),
+          0,
+        );
+        return {
+          sessionId,
+          tableNumber: "1",
+          orderCount: active.length,
+          readyCount: ready,
+          unpaidTotal: total,
+        };
+      });
+    },
   };
 
   return repo;

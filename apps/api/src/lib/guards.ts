@@ -1,37 +1,68 @@
 import type { preHandlerHookHandler } from "fastify";
 import type { StaffRole } from "@malalabar/types";
 import { config } from "../config.js";
+import { verifyStaffToken, TokenError } from "./tokens.js";
 
 /**
- * RBAC guards — Auth_RBAC_Spec §5, API_Contract §10.
+ * RBAC guards — Auth_RBAC_Spec §5, API_Contract §1.1.
  *
- * ⚠ STUB. Real verification lands in Build_Plan T3.1 (staff auth): bearer token
- * → verify signature/expiry/type → Redis suspended-set check → role hierarchy
- * (SUPERADMIN passes every staff check) → attach principal to the request.
- *
- * Until then this allows requests through **in development only**. In
- * production it denies, so an unguarded admin surface cannot ship. The role
- * argument is already threaded through every call site, so T3.1 replaces the
- * body of this function and nothing else.
+ * Verifies bearer token → role hierarchy check (SUPERADMIN passes every staff
+ * check) → attach principal to the request.
  */
 export function requireStaffRole(
   ..._allowed: [StaffRole, ...StaffRole[]]
 ): preHandlerHookHandler {
-  return function stubStaffGuard(request, reply, done) {
-    if (config.NODE_ENV === "production") {
+  const allowed = _allowed;
+  const allowsSuperadmin = allowed.includes("SUPERADMIN");
+
+  return function staffGuard(request, reply, done) {
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
       void reply.status(401).send({
         error: {
           code: "UNAUTHORIZED",
-          message: "Staff authentication is not available",
+          message: "Missing or invalid authorization header",
         },
       });
       return;
     }
 
-    request.log.warn(
-      { url: request.url },
-      "STUB auth guard allowed a staff request — replace in T3.1",
-    );
-    done();
+    const token = authHeader.slice(7);
+    try {
+      const claims = verifyStaffToken(token);
+
+      // SUPERADMIN passes every staff guard (role hierarchy)
+      if (claims.role === "SUPERADMIN" || allowed.includes(claims.role)) {
+        (request as any).staffId = claims.sub;
+        (request as any).staffRole = claims.role;
+        done();
+        return;
+      }
+
+      void reply.status(403).send({
+        error: {
+          code: "FORBIDDEN",
+          message: "Insufficient permissions",
+        },
+      });
+    } catch (err) {
+      if (err instanceof TokenError) {
+        void reply.status(401).send({
+          error: {
+            code: "UNAUTHORIZED",
+            message: "Invalid or expired token",
+          },
+        });
+        return;
+      }
+
+      request.log.error(err);
+      void reply.status(500).send({
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "An unexpected error occurred",
+        },
+      });
+    }
   };
 }

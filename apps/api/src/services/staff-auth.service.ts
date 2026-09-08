@@ -1,5 +1,5 @@
 import { compare } from "bcryptjs";
-import { sign } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
 import type { StaffLoginResponse } from "@malalabar/types";
 import { AppError } from "../lib/errors.js";
 import { config } from "../config.js";
@@ -36,7 +36,7 @@ export function createStaffAuthService(deps: {
       await deps.staff.updateLastLogin(user.id);
 
       // Generate JWT token
-      const token = sign(
+      const token = jwt.sign(
         {
           sub: user.id,
           email: user.email,

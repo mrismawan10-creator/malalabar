@@ -8,6 +8,7 @@ import type { SessionService } from "../services/session.service.js";
 import type { StaffAuthService } from "../services/staff-auth.service.js";
 import type { KitchenDeviceAuthService } from "../services/kitchen-device-auth.service.js";
 import type { TableService } from "../services/table.service.js";
+import type { CashierService } from "../services/cashier.service.js";
 import { adminTableRoutes } from "./admin/tables.js";
 import { healthRoutes } from "./health.js";
 import { kitchenDeviceAuthRoutes } from "./kitchen-device-auth.js";
@@ -16,6 +17,7 @@ import { menuRoutes } from "./menu.js";
 import { orderRoutes } from "./orders.js";
 import { sessionRoutes } from "./sessions.js";
 import { staffAuthRoutes } from "./staff-auth.js";
+import { cashierRoutes } from "./cashier.js";
 
 export interface RouteOptions {
   tableService: TableService;
@@ -24,6 +26,7 @@ export interface RouteOptions {
   orderService: OrderService;
   staffAuthService: StaffAuthService;
   kitchenDeviceAuthService: KitchenDeviceAuthService;
+  cashierService: CashierService;
   sessionRepository: SessionRepository;
   tableRepository: TableRepository;
   menuRepository: MenuRepository;
@@ -48,6 +51,7 @@ export const registerRoutes: FastifyPluginAsync<RouteOptions> = async (
     sessions: opts.sessionRepository,
     tables: opts.tableRepository,
   });
+  await app.register(cashierRoutes, { cashierService: opts.cashierService });
   await app.register(adminTableRoutes, {
     prefix: "/admin",
     tableService: opts.tableService,

@@ -1,5 +1,5 @@
 import { compare } from "bcryptjs";
-import { sign } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
 import { AppError } from "../lib/errors.js";
 import { config } from "../config.js";
 import type { KitchenDeviceRepository } from "../repositories/kitchen-device.repository.js";
@@ -48,11 +48,10 @@ export function createKitchenDeviceAuthService(deps: {
       await deps.kitchenDevice.updateLastSeen(deviceId);
 
       // Generate JWT token
-      const token = sign(
+      const token = jwt.sign(
         {
           sub: device.id,
-          type: "kds_device",
-          label: device.label,
+          type: "kds",
         },
         config.JWT_SECRET,
         { expiresIn: "90d", algorithm: "HS256" },

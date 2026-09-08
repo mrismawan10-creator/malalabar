@@ -1,4 +1,5 @@
 export * from "./auth.js";
+export * from "./cashier.js";
 export * from "./error.js";
 export * from "./menu.js";
 export * from "./order.js";

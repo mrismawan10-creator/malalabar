@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import type { StaffRole } from "@malalabar/types";
 import { config } from "../config.js";
 
 /**
@@ -16,6 +17,18 @@ export interface CustomerSessionClaims {
   sub: string;
   type: "customer_session";
   tableId: string;
+}
+
+export interface StaffClaims {
+  sub: string;
+  type: "staff";
+  role: StaffRole;
+  email: string;
+}
+
+export interface KdsClaims {
+  sub: string;
+  type: "kds";
 }
 
 export class TokenError extends Error {
@@ -72,5 +85,59 @@ export function verifyCustomerSessionToken(
     sub: claims.sub,
     type: "customer_session",
     tableId: claims.tableId,
+  };
+}
+
+/** Verify staff JWT token (from T3.1 login) */
+export function verifyStaffToken(token: string): StaffClaims {
+  let decoded: unknown;
+  try {
+    decoded = jwt.verify(token, config.JWT_SECRET, { algorithms: ["HS256"] });
+  } catch {
+    throw new TokenError("Invalid or expired staff token");
+  }
+
+  if (
+    typeof decoded !== "object" ||
+    decoded === null ||
+    (decoded as { type?: unknown }).type !== "staff" ||
+    typeof (decoded as { sub?: unknown }).sub !== "string" ||
+    typeof (decoded as { role?: unknown }).role !== "string" ||
+    typeof (decoded as { email?: unknown }).email !== "string"
+  ) {
+    throw new TokenError("Invalid or expired staff token");
+  }
+
+  const claims = decoded as { sub: string; role: StaffRole; email: string };
+  return {
+    sub: claims.sub,
+    type: "staff",
+    role: claims.role,
+    email: claims.email,
+  };
+}
+
+/** Verify KDS device token (from T3.2 login) */
+export function verifyKdsToken(token: string): KdsClaims {
+  let decoded: unknown;
+  try {
+    decoded = jwt.verify(token, config.JWT_SECRET, { algorithms: ["HS256"] });
+  } catch {
+    throw new TokenError("Invalid or expired KDS token");
+  }
+
+  if (
+    typeof decoded !== "object" ||
+    decoded === null ||
+    (decoded as { type?: unknown }).type !== "kds" ||
+    typeof (decoded as { sub?: unknown }).sub !== "string"
+  ) {
+    throw new TokenError("Invalid or expired KDS token");
+  }
+
+  const claims = decoded as { sub: string };
+  return {
+    sub: claims.sub,
+    type: "kds",
   };
 }

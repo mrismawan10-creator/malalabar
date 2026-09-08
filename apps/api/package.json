@@ -18,6 +18,8 @@
     "dotenv": "^16.4.7",
     "fastify": "^4.28.1",
     "fastify-plugin": "^6.0.0",
+    "ioredis": "^6.0.0",
+    "jsonwebtoken": "^9.0.3",
     "pdfkit": "^0.20.2",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.3",
@@ -25,6 +27,7 @@
   },
   "devDependencies": {
     "@malalabar/config": "workspace:*",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.17.0",
     "@types/pdfkit": "^0.17.6",
     "@types/pngjs": "^6.0.5",

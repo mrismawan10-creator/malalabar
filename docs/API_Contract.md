@@ -84,7 +84,18 @@ res:  {
                     serviceEnabled, servicePercent, enabledPaymentMethods: ["CASH","CARD","ONLINE"] }
       }
 ```
-409 if the table is inactive or token version is stale (QR was regenerated).
+Returns **200**, not 201: this is find-or-create. A second phone scanning the same
+table joins the *same* OPEN session and shares one bill (SDD_Core §5.1).
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `INVALID_TABLE_TOKEN` | Signature does not verify — not a QR this server minted |
+| 409 | `QR_REGENERATED` | Correctly signed but no longer stored: the QR was rotated |
+| 409 | `TABLE_INACTIVE` | Table is deactivated (PRD 4.1.1) |
+| 503 | `SETTINGS_MISSING` | SystemSettings singleton absent — restaurant not configured |
+
+The session token's lifetime tracks `SystemSettings.sessionTimeoutMins`, so a dead
+session cannot outlive its token (Auth_RBAC_Spec §3).
 
 ### `POST /auth/kds/login`
 Public. Device token exchange for the kitchen display.

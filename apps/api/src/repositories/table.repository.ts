@@ -12,6 +12,9 @@ export interface TableRepository {
 
   findById(id: string): Promise<RestaurantTable | null>;
 
+  /** Resolves a QR's opaque token to its table. Null means the QR was rotated. */
+  findByQrToken(qrToken: string): Promise<RestaurantTable | null>;
+
   /** Null-safe counterpart to the @@unique([number, area]) constraint. */
   findByNumberAndArea(
     number: string,
@@ -51,6 +54,10 @@ export function createPrismaTableRepository(
 
     findById(id) {
       return prisma.restaurantTable.findUnique({ where: { id } });
+    },
+
+    findByQrToken(qrToken) {
+      return prisma.restaurantTable.findUnique({ where: { qrToken } });
     },
 
     findByNumberAndArea(number, area) {

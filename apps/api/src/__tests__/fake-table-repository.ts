@@ -25,6 +25,10 @@ export function createFakeTableRepository(
       return rows.get(id) ?? null;
     },
 
+    async findByQrToken(qrToken) {
+      return [...rows.values()].find((r) => r.qrToken === qrToken) ?? null;
+    },
+
     async findByNumberAndArea(number, area) {
       return (
         [...rows.values()].find((r) => r.number === number && r.area === area) ??

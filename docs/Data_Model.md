@@ -433,7 +433,7 @@ Menu items, stages, and tables are referenced by historical orders and audit log
 Prisma cannot express a partial unique index ("unique tableId WHERE status = OPEN") in the schema DSL directly. Add it via a raw migration:
 ```sql
 CREATE UNIQUE INDEX one_open_session_per_table
-  ON table_sessions (table_id)
+  ON table_sessions ("tableId")
   WHERE status = 'OPEN';
 ```
 Combine with a Redis lock at the service layer (`SDD_Core §5.1`) to avoid a race on simultaneous scans. The DB index is the backstop; Redis is the fast guard.

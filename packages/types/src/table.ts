@@ -36,3 +36,6 @@ export interface TableWithTokenResponse {
   /** The opaque signed value encoded into the QR image. */
   qrToken: string;
 }
+
+/** `GET /admin/tables/:id/qr?format=` — PNG for digital use, PDF for printing. */
+export type QrFormat = "png" | "pdf";

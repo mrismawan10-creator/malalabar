@@ -1,6 +1,9 @@
 import "dotenv/config";
 import { z } from "zod";
 
+/** Only safe for local dev; production is forced to override it (see below). */
+const CUSTOMER_APP_URL_DEV_DEFAULT = "http://localhost:3000";
+
 const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -24,6 +27,9 @@ const envSchema = z.object({
     .default(
       "http://localhost:3000,http://localhost:3001,http://localhost:3002",
     ),
+  /** Public origin of the customer app — the QR encodes `<this>/order?t=<token>`
+   *  (PRD 4.1.2). Printed onto physical cards, so production must set it. */
+  CUSTOMER_APP_URL: z.string().url().default(CUSTOMER_APP_URL_DEV_DEFAULT),
 
   // ── External services ──────────────────────────────────────────────────────
   MIDTRANS_SERVER_KEY: z.string().default(""),
@@ -32,7 +38,23 @@ const envSchema = z.object({
   CLOUDINARY_URL: z.string().default(""),
 });
 
-const result = envSchema.safeParse(process.env);
+const result = envSchema
+  .superRefine((env, ctx) => {
+    // A wrong value here ships as unscannable printed QR codes, so it cannot be
+    // allowed to fall back silently in production.
+    if (
+      env.NODE_ENV === "production" &&
+      env.CUSTOMER_APP_URL === CUSTOMER_APP_URL_DEV_DEFAULT
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["CUSTOMER_APP_URL"],
+        message:
+          "must be set to the public customer app origin in production (QR codes embed it)",
+      });
+    }
+  })
+  .safeParse(process.env);
 
 if (!result.success) {
   const errors = result.error.issues

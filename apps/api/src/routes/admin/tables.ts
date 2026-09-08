@@ -28,6 +28,10 @@ const updateBodySchema = z
 
 const idParamsSchema = z.object({ id: z.string().min(1) });
 
+const qrQuerySchema = z.object({
+  format: z.enum(["png", "pdf"]).default("png"),
+});
+
 interface Options {
   tableService: TableService;
 }
@@ -68,4 +72,18 @@ export const adminTableRoutes: FastifyPluginAsync<Options> = async (
       return tableService.regenerateQr(id);
     },
   );
+
+  app.get("/tables/:id/qr", { preHandler: guard }, async (request, reply) => {
+    const { id } = idParamsSchema.parse(request.params);
+    const { format } = qrQuerySchema.parse(request.query);
+
+    const artifact = await tableService.getQrArtifact(id, format);
+    return reply
+      .header("Content-Type", artifact.contentType)
+      .header(
+        "Content-Disposition",
+        `attachment; filename="${artifact.filename}"`,
+      )
+      .send(artifact.body);
+  });
 };

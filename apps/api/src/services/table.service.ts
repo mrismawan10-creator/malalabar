@@ -1,7 +1,16 @@
-import type { AdminTable, TableWithTokenResponse } from "@malalabar/types";
+import type {
+  AdminTable,
+  QrFormat,
+  TableWithTokenResponse,
+} from "@malalabar/types";
 import type { RestaurantTable } from "@malalabar/db";
 import { Prisma } from "@malalabar/db";
 import { AppError } from "../lib/errors.js";
+import {
+  qrFileBaseName,
+  renderQrPdf,
+  renderQrPng,
+} from "../lib/qr-image.js";
 import { mintTableToken } from "../lib/qr-token.js";
 import type { TableRepository } from "../repositories/table.repository.js";
 
@@ -56,6 +65,13 @@ export interface TableService {
     patch: { number?: string; area?: string | null; isActive?: boolean },
   ): Promise<AdminTable>;
   regenerateQr(id: string): Promise<TableWithTokenResponse>;
+  getQrArtifact(id: string, format: QrFormat): Promise<QrArtifact>;
+}
+
+export interface QrArtifact {
+  body: Buffer;
+  contentType: string;
+  filename: string;
 }
 
 export function createTableService(repo: TableRepository): TableService {
@@ -130,6 +146,31 @@ export function createTableService(repo: TableRepository): TableService {
       // they already hold a session token (Auth_RBAC_Spec §3.1).
       const row = await repo.rotateToken(id, mintTableToken());
       return { table: toDto(row), qrToken: row.qrToken };
+    },
+
+    async getQrArtifact(id, format) {
+      const row = await getOr404(id);
+      const base = qrFileBaseName(row.number, row.area);
+
+      // A deactivated table still yields a downloadable QR: deactivation blocks
+      // the customer at POST /sessions (PRD 4.1.1), not the admin's printing.
+      if (format === "pdf") {
+        return {
+          body: await renderQrPdf({
+            qrToken: row.qrToken,
+            number: row.number,
+            area: row.area,
+          }),
+          contentType: "application/pdf",
+          filename: `${base}.pdf`,
+        };
+      }
+
+      return {
+        body: await renderQrPng(row.qrToken),
+        contentType: "image/png",
+        filename: `${base}.png`,
+      };
     },
   };
 }

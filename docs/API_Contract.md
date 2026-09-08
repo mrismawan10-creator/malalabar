@@ -334,6 +334,17 @@ while rejecting junk with 400.
 Errors: `TABLE_NOT_FOUND` (404), `TABLE_NUMBER_TAKEN` (409 — `number` + `area` must be
 unique, and two tables with the same number and *no* area also collide).
 
+`GET /admin/tables/:id/qr` returns the file itself, not JSON:
+
+| `format` | Content-Type | Shape |
+|---|---|---|
+| `png` (default) | `image/png` | 800px, error correction M |
+| `pdf` | `application/pdf` | A5 portrait card: table number, area, QR, "Scan untuk memesan" |
+
+Both carry `Content-Disposition: attachment; filename="meja-05-outdoor.png"`. The encoded
+value is `<CUSTOMER_APP_URL>/order?t=<qrToken>` (PRD 4.1.2). A deactivated table still
+returns its QR — deactivation blocks the customer at `POST /sessions`, not the printing.
+
 ---
 
 ## 7. Analytics & Reports  (role: ADMIN, also SUPERADMIN)

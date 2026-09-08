@@ -1,6 +1,7 @@
 import type { PaymentMethod, PaymentInitiationResponse } from "@malalabar/types";
 import { AppError } from "../lib/errors.js";
 import type { PrismaClient } from "@malalabar/db";
+import type { MidtransService } from "./midtrans.service.js";
 
 export interface PaymentService {
   initiatePayment(
@@ -11,6 +12,7 @@ export interface PaymentService {
 
 export function createPaymentService(deps: {
   prisma: PrismaClient;
+  midtrans: MidtransService;
 }): PaymentService {
   return {
     async initiatePayment(sessionId, method) {
@@ -22,6 +24,7 @@ export function createPaymentService(deps: {
         select: {
           id: true,
           status: true,
+          table: { select: { number: true } },
           orders: {
             where: { rejected: false },
             select: {
@@ -114,23 +117,41 @@ export function createPaymentService(deps: {
 
       const totalAmount = subtotal + taxAmount + serviceAmount;
 
+      let paymentData: Record<string, any> = {
+        sessionId,
+        method,
+        status: "PENDING",
+        subtotal,
+        taxAmount,
+        serviceAmount,
+        totalAmount,
+      };
+
+      // For ONLINE payments, call Midtrans first
+      let midtransToken: string | undefined;
+
+      if (method === "ONLINE") {
+        const midtransResult = await deps.midtrans.createSnapTransaction({
+          orderId: sessionId, // Use session ID as order ID
+          amount: totalAmount,
+          customerName: `Table ${session.table.number}`,
+        });
+
+        paymentData.midtransOrderId = midtransResult.transactionId;
+        midtransToken = midtransResult.snapToken;
+        paymentData.midtransToken = midtransToken;
+      }
+
       // Create payment with frozen amounts
       const payment = await prisma.payment.create({
-        data: {
-          sessionId,
-          method,
-          status: "PENDING",
-          subtotal,
-          taxAmount,
-          serviceAmount,
-          totalAmount,
-        },
+        data: paymentData as any,
         select: {
           id: true,
           method: true,
           status: true,
           totalAmount: true,
           createdAt: true,
+          midtransToken: true,
         },
       });
 
@@ -153,12 +174,13 @@ export function createPaymentService(deps: {
           instruction,
         };
       } else {
-        // ONLINE — Midtrans (stub for now, will be T4.3)
+        // ONLINE — Midtrans (T4.3)
+        const isProduction = process.env.NODE_ENV === "production";
         return {
           payment: paymentInfo,
           midtrans: {
-            snapToken: "", // Will be filled by Midtrans service
-            redirectUrl: "", // Will be filled by Midtrans service
+            snapToken: payment.midtransToken || "",
+            redirectUrl: `https://app${isProduction ? "" : ".sandbox"}.midtrans.com/snap/v2/${payment.midtransToken}`,
           },
         };
       }

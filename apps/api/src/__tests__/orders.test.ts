@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
-import type { CreateOrderResponse } from "@malalabar/types";
+import type { CreateOrderResponse, OrderCreatedPayload } from "@malalabar/types";
 import { buildApp } from "../app.js";
 import { signCustomerSessionToken } from "../lib/tokens.js";
 import { createFakeTableRepository } from "./fake-table-repository.js";
@@ -14,6 +14,7 @@ import {
 let app: FastifyInstance;
 let sessions: ReturnType<typeof createFakeSessionRepository>;
 let orders: ReturnType<typeof createFakeOrderRepository>;
+let tables: ReturnType<typeof createFakeTableRepository>;
 let sessionId: string;
 let token: string;
 
@@ -22,14 +23,21 @@ async function boot(
 ) {
   sessions = createFakeSessionRepository();
   orders = orderRepo;
+  tables = createFakeTableRepository();
   app = await buildApp({
-    tableRepository: createFakeTableRepository(),
+    tableRepository: tables,
     sessionRepository: sessions,
     settingsRepository: createFakeSettingsRepository(),
     menuRepository: createFakeMenuRepository(),
     orderRepository: orders,
   });
   await app.ready();
+
+  await tables.create({
+    number: "1",
+    area: null,
+    qrToken: "token-table-1",
+  });
 
   const session = await sessions.createOpen("table-1");
   sessionId = session.id;
@@ -163,6 +171,28 @@ describe("POST /sessions/:id/orders — pricing is the server's job", () => {
     const [nasgor, tempe] = res.json<CreateOrderResponse>().order.items;
     expect(nasgor!.lineTotal).toBe(30000 + 3000 + 8000);
     expect(tempe!.lineTotal).toBe(12000 * 3);
+  });
+
+  it("emits order:created event to the cashier room after DB commit", async () => {
+    const spy = vi.spyOn(app.gateway, "orderCreated");
+
+    const res = await submit({ items: [NASGOR] });
+    expect(res.statusCode).toBe(201);
+
+    const { order } = res.json<CreateOrderResponse>();
+    expect(spy).toHaveBeenCalledOnce();
+    const payload = spy.mock.calls[0]![0] as OrderCreatedPayload;
+
+    expect(payload).toMatchObject({
+      orderId: order.id,
+      tableNumber: "1",
+      batchNumber: 1,
+      itemCount: 1,
+      estimatedTotal: 30000,
+      createdAt: order.createdAt,
+    });
+
+    spy.mockRestore();
   });
 });
 

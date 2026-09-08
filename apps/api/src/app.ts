@@ -128,6 +128,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       settings: settingsRepository,
     }),
     sessionRepository,
+    tableRepository,
   });
 
   return app;

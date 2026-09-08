@@ -1,7 +1,9 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import type { OrderCreatedPayload } from "@malalabar/types";
 import { requireCustomerSession } from "../lib/customer-guard.js";
 import type { SessionRepository } from "../repositories/session.repository.js";
+import type { TableRepository } from "../repositories/table.repository.js";
 import type { OrderService } from "../services/order.service.js";
 
 const paramsSchema = z.object({ sessionId: z.string().min(1) });
@@ -28,11 +30,12 @@ const bodySchema = z.object({
 interface Options {
   orderService: OrderService;
   sessions: SessionRepository;
+  tables: TableRepository;
 }
 
 export const orderRoutes: FastifyPluginAsync<Options> = async (
   app,
-  { orderService, sessions },
+  { orderService, sessions, tables },
 ) => {
   const guard = requireCustomerSession(sessions);
 
@@ -48,6 +51,27 @@ export const orderRoutes: FastifyPluginAsync<Options> = async (
       const owned = request.customerSession?.sessionId ?? sessionId;
 
       const result = await orderService.submit(owned, body.items);
+
+      // Emit realtime event only after the DB write commits (Realtime_Events §6).
+      // We know the table exists because the session guard verified it.
+      const table = await tables.findById(request.customerSession!.tableId);
+      if (table) {
+        const itemCount = result.order.items.length;
+        const estimatedTotal = result.order.items.reduce(
+          (sum, item) => sum + item.lineTotal,
+          0,
+        );
+        const payload: OrderCreatedPayload = {
+          orderId: result.order.id,
+          tableNumber: table.number,
+          batchNumber: result.order.batchNumber,
+          itemCount,
+          estimatedTotal,
+          createdAt: result.order.createdAt,
+        };
+        request.server.gateway.orderCreated(payload);
+      }
+
       return reply.status(201).send(result);
     },
   );

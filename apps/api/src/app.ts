@@ -20,11 +20,14 @@ import type { MenuRepository } from "./repositories/menu.repository.js";
 import { createPrismaMenuRepository } from "./repositories/menu.repository.js";
 import type { OrderRepository } from "./repositories/order.repository.js";
 import { createPrismaOrderRepository } from "./repositories/order.repository.js";
+import type { StaffRepository } from "./repositories/staff.repository.js";
+import { createPrismaStaffRepository } from "./repositories/staff.repository.js";
 import type { TableRepository } from "./repositories/table.repository.js";
 import { createPrismaTableRepository } from "./repositories/table.repository.js";
 import { createMenuService } from "./services/menu.service.js";
 import { createOrderService } from "./services/order.service.js";
 import { createSessionService } from "./services/session.service.js";
+import { createStaffAuthService } from "./services/staff-auth.service.js";
 import { createTableService } from "./services/table.service.js";
 import { registerRoutes } from "./routes/index.js";
 
@@ -37,6 +40,7 @@ export interface BuildAppOptions {
   settingsRepository?: SettingsRepository;
   menuRepository?: MenuRepository;
   orderRepository?: OrderRepository;
+  staffRepository?: StaffRepository;
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -96,7 +100,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
     !options.sessionRepository ||
     !options.settingsRepository ||
     !options.menuRepository ||
-    !options.orderRepository;
+    !options.orderRepository ||
+    !options.staffRepository;
   const prisma = needsPrisma ? getPrisma() : undefined;
 
   const tableRepository =
@@ -109,6 +114,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
     options.menuRepository ?? createPrismaMenuRepository(prisma!);
   const orderRepository =
     options.orderRepository ?? createPrismaOrderRepository(prisma!);
+  const staffRepository =
+    options.staffRepository ?? createPrismaStaffRepository(prisma!);
 
   app.addHook("onClose", async () => {
     await Promise.all([disconnectRedis(), disconnectPrisma()]);
@@ -127,6 +134,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       orders: orderRepository,
       settings: settingsRepository,
     }),
+    staffAuthService: createStaffAuthService({ staff: staffRepository }),
     sessionRepository,
     tableRepository,
     menuRepository,

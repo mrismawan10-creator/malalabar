@@ -15,6 +15,7 @@
     "@fastify/cors": "^9.0.1",
     "@malalabar/db": "workspace:*",
     "@malalabar/types": "workspace:*",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^16.4.7",
     "fastify": "^4.28.1",
     "fastify-plugin": "^6.0.0",

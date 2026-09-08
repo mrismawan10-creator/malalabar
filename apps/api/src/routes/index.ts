@@ -5,6 +5,7 @@ import type { SessionRepository } from "../repositories/session.repository.js";
 import type { TableRepository } from "../repositories/table.repository.js";
 import type { MenuRepository } from "../repositories/menu.repository.js";
 import type { SessionService } from "../services/session.service.js";
+import type { StaffAuthService } from "../services/staff-auth.service.js";
 import type { TableService } from "../services/table.service.js";
 import { adminTableRoutes } from "./admin/tables.js";
 import { healthRoutes } from "./health.js";
@@ -12,12 +13,14 @@ import { menuAdminRoutes } from "./menu-admin.js";
 import { menuRoutes } from "./menu.js";
 import { orderRoutes } from "./orders.js";
 import { sessionRoutes } from "./sessions.js";
+import { staffAuthRoutes } from "./staff-auth.js";
 
 export interface RouteOptions {
   tableService: TableService;
   sessionService: SessionService;
   menuService: MenuService;
   orderService: OrderService;
+  staffAuthService: StaffAuthService;
   sessionRepository: SessionRepository;
   tableRepository: TableRepository;
   menuRepository: MenuRepository;
@@ -28,6 +31,7 @@ export const registerRoutes: FastifyPluginAsync<RouteOptions> = async (
   opts,
 ) => {
   await app.register(healthRoutes);
+  await app.register(staffAuthRoutes, { staffAuth: opts.staffAuthService });
   await app.register(sessionRoutes, { sessionService: opts.sessionService });
   await app.register(menuRoutes, {
     menuService: opts.menuService,

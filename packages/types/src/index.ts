@@ -4,5 +4,6 @@ export * from "./menu.js";
 export * from "./order.js";
 export * from "./pagination.js";
 export * from "./session.js";
+export * from "./staff.js";
 export * from "./table.js";
 export * from "./events.js";

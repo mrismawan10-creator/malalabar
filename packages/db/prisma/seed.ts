@@ -8,6 +8,13 @@ function generateToken(): string {
   return randomBytes(32).toString("hex");
 }
 
+// NOTE: RestaurantTable.qrToken must be a *signed* token (CLAUDE.md hard rule 6).
+// The canonical minter lives in apps/api (it needs JWT_SECRET), which this package
+// cannot import without inverting the dependency direction. After seeding, run
+// `pnpm --filter api qr:reissue` to replace the placeholder tokens below with
+// properly signed ones. Kitchen device tokens are unaffected — those are hashed,
+// not signed.
+
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }

@@ -4,13 +4,19 @@ import { ZodError } from "zod";
 import type { ApiError } from "@malalabar/types";
 import { config } from "./config.js";
 import { AppError } from "./lib/errors.js";
+import { getPrisma } from "./lib/prisma.js";
 import type { SocketTokenVerifier } from "./realtime/index.js";
 import { realtimePlugin } from "./realtime/index.js";
+import type { TableRepository } from "./repositories/table.repository.js";
+import { createPrismaTableRepository } from "./repositories/table.repository.js";
+import { createTableService } from "./services/table.service.js";
 import { registerRoutes } from "./routes/index.js";
 
 export interface BuildAppOptions {
   /** Override the socket handshake verifier (tests; real JWT verifier later). */
   verifyToken?: SocketTokenVerifier;
+  /** Inject a fake repository in tests; production builds one over Prisma. */
+  tableRepository?: TableRepository;
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -65,7 +71,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
   // Socket.io shares this Fastify HTTP server (SDD_Core §3).
   await app.register(realtimePlugin, { verifyToken: options.verifyToken });
 
-  await app.register(registerRoutes, { prefix: "/api/v1" });
+  const tableRepository =
+    options.tableRepository ?? createPrismaTableRepository(getPrisma());
+
+  await app.register(registerRoutes, {
+    prefix: "/api/v1",
+    tableService: createTableService(tableRepository),
+  });
 
   return app;
 }

@@ -305,12 +305,34 @@ DELETE /admin/customization-groups/:groupId
 
 ### Tables & QR
 ```
-GET    /admin/tables                                list: number, area, isActive, qr validity
-POST   /admin/tables                                { number, area? }
+GET    /admin/tables?page=1&pageSize=50             paginated (§1.3)
+POST   /admin/tables                                { number, area? }                    → 201
 PATCH  /admin/tables/:id                            { number?, area?, isActive? }
 POST   /admin/tables/:id/qr/regenerate              rotates qrToken, bumps tokenVersion → old QR invalid
 GET    /admin/tables/:id/qr?format=png|pdf          returns the QR file (PNG digital / PDF A5 print)
 ```
+
+Table shape (`AdminTable` in `packages/types`):
+```
+{ id, number, area, isActive, tokenVersion, createdAt, updatedAt }
+```
+`tokenVersion` is the "qr validity" marker — it increments on every regeneration,
+so staff can see which printed QRs are stale.
+
+Create and regenerate both return the freshly minted token:
+```
+res:  { table: AdminTable, qrToken }
+```
+`qrToken` is a credential and is returned **only** at mint time — never in
+`GET /admin/tables`. To recover it later, download the QR file.
+
+The token is opaque and signed (CLAUDE.md hard rule 6): `<nonce>.<hmac>`, where the
+nonce is 32 random bytes carrying no table number, id or version. Signature validity
+is what lets `POST /sessions` answer 409 "QR regenerated" for a real-but-rotated token
+while rejecting junk with 400.
+
+Errors: `TABLE_NOT_FOUND` (404), `TABLE_NUMBER_TAKEN` (409 — `number` + `area` must be
+unique, and two tables with the same number and *no* area also collide).
 
 ---
 

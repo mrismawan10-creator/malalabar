@@ -15,3 +15,16 @@ export interface StaffLoginResponse {
     mustReset: boolean;
   };
 }
+
+export interface KitchenDeviceLoginRequest {
+  deviceId: string;
+  token: string;
+}
+
+export interface KitchenDeviceLoginResponse {
+  token: string;
+  device: {
+    id: string;
+    label: string;
+  };
+}

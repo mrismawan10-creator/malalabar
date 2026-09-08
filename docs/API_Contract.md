@@ -125,6 +125,13 @@ res:  {
       }
 ```
 Items with `isAvailable=false` are still returned (rendered as HABIS), per PRD 4.2.2.
+Soft-deleted items are not. `discountPercent` is derived server-side —
+`round((basePrice - promoPrice) / basePrice * 100)`, never negative — so the carousel,
+the item card and the `menu:promo` event all show the same badge.
+
+A promo is visible only while `isActive`; an inactive one is absent from `promos` **and**
+its item's `promo` is `null` (PRD 4.2.1). Errors: `ITEM_NOT_FOUND` (404) on
+`/menu/items/:id` for an unknown or soft-deleted item.
 
 ### `GET /menu/items/:id`
 Item detail with customization groups.

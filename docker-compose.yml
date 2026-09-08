@@ -1,0 +1,44 @@
+# Local development dependencies only.
+#
+# Production uses Railway's managed Postgres + Redis (SDD_Core §3); this file
+# exists so a developer can run the stack without installing either natively.
+# Credentials here are deliberately trivial — nothing sensitive belongs in a
+# file that is committed.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: malalabar-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: malalabar
+      POSTGRES_PASSWORD: malalabar
+      POSTGRES_DB: malalabar
+    ports:
+      # Host 5433, not 5432: this machine already runs another project's
+      # Postgres on the default port. Container-internal port stays 5432.
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U malalabar -d malalabar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: malalabar-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:
+  redis-data:

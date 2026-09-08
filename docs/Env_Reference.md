@@ -64,6 +64,30 @@ No secret keys in any frontend. Cloudinary uploads use a signature minted by the
 
 ---
 
+## 2.5 Local development dependencies
+
+`docker-compose.yml` at the repo root runs Postgres and Redis for local work
+(production uses Railway's managed instances — SDD_Core §3):
+
+```bash
+docker compose up -d          # postgres + redis
+pnpm db:migrate               # or: prisma migrate deploy
+pnpm db:seed
+pnpm --filter api qr:reissue  # sign the seeded table tokens (see below)
+```
+
+Postgres is published on host port **5433**, not 5432, so it cannot collide with
+another Postgres already running on the machine. Local `DATABASE_URL` therefore
+reads `postgresql://malalabar:malalabar@localhost:5433/malalabar`. Redis uses the
+usual 6379.
+
+`qr:reissue` is required after a first seed: the seed lives in `packages/db` and
+cannot reach the signing key, so it writes placeholder table tokens that the
+script replaces with properly signed ones. It is idempotent and leaves valid
+tokens untouched, so it is safe to re-run.
+
+---
+
 ## 3. `packages/db`
 
 | Variable | Notes |

@@ -4,6 +4,9 @@ import type {
   MenuResponse,
   CreateOrderResponse,
   CreateOrderItemRequest,
+  PaymentInitiationRequest,
+  PaymentInitiationResponse,
+  PaymentMethod,
 } from "@malalabar/types";
 
 export interface HealthResponse {
@@ -92,6 +95,19 @@ export function createApiClient(baseUrl: string) {
         body: JSON.stringify(body),
         token,
       }),
+
+    initiatePayment: (sessionId: string, method: PaymentMethod, token: string) =>
+      request<PaymentInitiationResponse>(
+        `/sessions/${encodeURIComponent(sessionId)}/payment`,
+        {
+          method: "POST",
+          body: JSON.stringify({ method }),
+          token,
+        },
+      ),
+
+    getBill: (sessionId: string, token: string) =>
+      request<any>(`/sessions/${encodeURIComponent(sessionId)}/bill`, { token }),
   };
 }
 

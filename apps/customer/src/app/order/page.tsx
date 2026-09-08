@@ -14,9 +14,12 @@ import { CartDrawer } from "@/components/cart-drawer";
 import { ItemDetailModal } from "@/components/item-detail-modal";
 import { MenuCard } from "@/components/menu-card";
 import { PromoCarousel } from "@/components/promo-carousel";
+import { BillCheckout } from "@/components/bill-checkout";
+import { PaymentSuccess } from "@/components/payment-success";
 import { applyAccent } from "@/lib/theme";
 import { useCart } from "@/lib/use-cart";
 import { useMenuUpdates } from "@/lib/use-menu-updates";
+import { useSocket } from "@/lib/use-socket";
 import {
   clearSession,
   readSession,
@@ -53,6 +56,15 @@ function OrderScreen() {
   const cart = useCart();
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [orderSubmitted, setOrderSubmitted] = useState(false);
+
+  // Payment flow state
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [paymentConfirmed, setPaymentConfirmed] = useState(false);
+  const [billData, setBillData] = useState<any>(null);
+  const [billLoading, setBillLoading] = useState(false);
+
+  // Socket.io for realtime updates
+  const socket = useSocket(stored?.sessionToken ?? null);
 
   /**
    * Scan → session → menu.
@@ -176,11 +188,50 @@ function OrderScreen() {
     );
   }
 
-  const handleOrderSubmitted = () => {
+  const handleOrderSubmitted = async () => {
+    if (!stored) return;
+
     setOrderSubmitted(true);
     cart.clearCart();
-    setTimeout(() => setOrderSubmitted(false), 3000);
+
+    // Fetch bill to show checkout
+    setBillLoading(true);
+    try {
+      const bill = await api.getBill(stored.session.id, stored.sessionToken);
+      setBillData(bill);
+      setShowCheckout(true);
+    } catch (err) {
+      console.error("Failed to fetch bill:", err);
+    } finally {
+      setBillLoading(false);
+    }
+
+    setTimeout(() => setOrderSubmitted(false), 1000);
   };
+
+  // Show payment success screen
+  if (paymentConfirmed) {
+    return <PaymentSuccess />;
+  }
+
+  // Show checkout screen
+  if (showCheckout && billData) {
+    return (
+      <BillCheckout
+        sessionId={stored!.session.id}
+        sessionToken={stored!.sessionToken}
+        session={stored!}
+        totalAmount={billData.totalAmount}
+        subtotal={billData.subtotal}
+        taxAmount={billData.taxAmount}
+        serviceAmount={billData.serviceAmount}
+        items={billData.lines}
+        onPaymentConfirmed={() => setPaymentConfirmed(true)}
+        apiClient={api}
+        socket={socket}
+      />
+    );
+  }
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-[428px] flex-col pb-8">

@@ -169,7 +169,22 @@ res:  {
         }
       }
 ```
-422 if a required SINGLE_SELECT group has no selection, or a sold-out item is included. **The server ignores any price the client sends.** (CLAUDE.md §5.2, §5.3.)
+**The server ignores any price the client sends** — the request schema strips unknown
+keys, so `price`/`lineTotal` never reach business logic (CLAUDE.md §5.2, §5.3).
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Empty `items`, quantity outside 1–99, malformed body |
+| 422 | `ITEM_UNAVAILABLE` | A sold-out item is included |
+| 422 | `ITEM_NOT_FOUND` | Unknown or soft-deleted `menuItemId` |
+| 422 | `REQUIRED_OPTION_MISSING` | A required group has no selection |
+| 422 | `INVALID_OPTION` | Option id not on this item, or 2+ in a SINGLE_SELECT group |
+| 503 | `STAGE_NOT_CONFIGURED` | No active AWAITING_CONFIRMATION stage exists |
+
+A batch is all-or-nothing: one bad line rejects the whole submission and writes nothing.
+
+`batchNumber` is assigned inside the write transaction under a session row lock, so two
+phones sharing a session (SDD_Core §5.1) always get distinct, gapless numbers.
 
 ### `GET /sessions/:sessionId/orders`
 All order batches in the session with current status, for the tracking screen.

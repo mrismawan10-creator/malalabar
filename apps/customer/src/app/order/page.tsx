@@ -10,10 +10,12 @@ import type {
 import { ApiClientError, createApiClient } from "@malalabar/ui";
 import { config } from "@/config";
 import { ALL_CATEGORY, CategoryNav } from "@/components/category-nav";
+import { CartDrawer } from "@/components/cart-drawer";
 import { ItemDetailModal } from "@/components/item-detail-modal";
 import { MenuCard } from "@/components/menu-card";
 import { PromoCarousel } from "@/components/promo-carousel";
 import { applyAccent } from "@/lib/theme";
+import { useCart } from "@/lib/use-cart";
 import {
   clearSession,
   readSession,
@@ -46,6 +48,10 @@ function OrderScreen() {
   const [detail, setDetail] = useState<MenuItemDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+
+  const cart = useCart();
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [orderSubmitted, setOrderSubmitted] = useState(false);
 
   /**
    * Scan → session → menu.
@@ -166,6 +172,12 @@ function OrderScreen() {
     );
   }
 
+  const handleOrderSubmitted = () => {
+    setOrderSubmitted(true);
+    cart.clearCart();
+    setTimeout(() => setOrderSubmitted(false), 3000);
+  };
+
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-[428px] flex-col pb-8">
       <header className="flex items-center justify-between gap-3 px-4 pt-5">
@@ -177,15 +189,38 @@ function OrderScreen() {
             Scan · Pesan · Nikmati
           </p>
         </div>
-        <div className="shrink-0 rounded-lg border-[2.5px] border-ink-line bg-surface-raised px-3 py-2 text-center shadow-hard">
-          <span className="block text-micro font-semibold text-ink-soft">
-            MEJA
-          </span>
-          <span className="block font-display text-2xl leading-none text-ink">
-            {stored.session.tableNumber}
-          </span>
+        <div className="flex items-center gap-2">
+          {cart.isReady && cart.itemCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setIsCartOpen(true)}
+              className="relative flex h-[44px] w-[44px] items-center justify-center rounded-lg border-[2.5px] border-ink-line bg-surface-raised shadow-hard text-2xl transition-colors hover:bg-accent/10 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none motion-reduce:active:translate-x-0 motion-reduce:active:translate-y-0"
+              aria-label={`Keranjang (${cart.itemCount} item)`}
+            >
+              🛒
+              {cart.itemCount > 0 && (
+                <span className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-xs font-bold text-white">
+                  {cart.itemCount}
+                </span>
+              )}
+            </button>
+          )}
+          <div className="shrink-0 rounded-lg border-[2.5px] border-ink-line bg-surface-raised px-3 py-2 text-center shadow-hard">
+            <span className="block text-micro font-semibold text-ink-soft">
+              MEJA
+            </span>
+            <span className="block font-display text-2xl leading-none text-ink">
+              {stored.session.tableNumber}
+            </span>
+          </div>
         </div>
       </header>
+
+      {orderSubmitted && (
+        <div className="mx-4 mt-3 rounded-lg border-2 border-success bg-success/10 p-3 text-center text-sm text-success-ink">
+          ✓ Pesanan berhasil dikirim! Tracking di menu utama.
+        </div>
+      )}
 
       <PromoCarousel promos={menu.promos} onOpenItem={setOpenItemId} />
 
@@ -220,6 +255,23 @@ function OrderScreen() {
           loading={detailLoading}
           error={detailError}
           onClose={() => setOpenItemId(null)}
+          onAddToCart={(cartItem) => {
+            cart.addItem(cartItem);
+            setIsCartOpen(true);
+          }}
+        />
+      )}
+
+      {cart.isReady && stored && (
+        <CartDrawer
+          isOpen={isCartOpen}
+          items={cart.items}
+          totalPrice={cart.totalPrice}
+          sessionId={stored.session.id}
+          onClose={() => setIsCartOpen(false)}
+          onRemoveItem={cart.removeItem}
+          onUpdateQuantity={cart.updateQuantity}
+          onOrderSubmitted={handleOrderSubmitted}
         />
       )}
     </main>

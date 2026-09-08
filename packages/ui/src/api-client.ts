@@ -2,6 +2,8 @@ import type {
   CreateSessionResponse,
   MenuItemDetail,
   MenuResponse,
+  CreateOrderResponse,
+  CreateOrderItemRequest,
 } from "@malalabar/types";
 
 export interface HealthResponse {
@@ -81,6 +83,13 @@ export function createApiClient(baseUrl: string) {
 
     getMenuItem: (id: string, token: string) =>
       request<MenuItemDetail>(`/menu/items/${encodeURIComponent(id)}`, {
+        token,
+      }),
+
+    submitOrder: (sessionId: string, body: { items: CreateOrderItemRequest[] }, token: string) =>
+      request<CreateOrderResponse>(`/sessions/${encodeURIComponent(sessionId)}/orders`, {
+        method: "POST",
+        body: JSON.stringify(body),
         token,
       }),
   };

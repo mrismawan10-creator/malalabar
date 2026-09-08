@@ -33,6 +33,7 @@ import { createStaffAuthService } from "./services/staff-auth.service.js";
 import { createKitchenDeviceAuthService } from "./services/kitchen-device-auth.service.js";
 import { createTableService } from "./services/table.service.js";
 import { createCashierService } from "./services/cashier.service.js";
+import { createKdsService } from "./services/kds.service.js";
 import { registerRoutes } from "./routes/index.js";
 
 export interface BuildAppOptions {
@@ -147,6 +148,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
       kitchenDevice: kitchenDeviceRepository,
     }),
     cashierService: createCashierService({
+      orderRepository,
+      prisma: prisma!,
+      gateway: app.gateway,
+    }),
+    kdsService: createKdsService({
       orderRepository,
       prisma: prisma!,
       gateway: app.gateway,

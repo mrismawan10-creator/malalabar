@@ -277,6 +277,64 @@ export function createFakeOrderRepository(options: {
         };
       });
     },
+
+    async findKdsOrders() {
+      const inProgress = persisted.filter(
+        (o) =>
+          !o.rejected &&
+          (o.currentStage.semanticKey === "ACCEPTED" ||
+            o.currentStage.semanticKey === "IN_PROGRESS" ||
+            o.currentStage.semanticKey === "CUSTOM"),
+      );
+
+      return inProgress.map((o) => ({
+        id: o.id,
+        tableNumber: "1",
+        batchNumber: o.batchNumber,
+        acceptedAt: o.createdAt.toISOString(),
+        currentStage: o.currentStage,
+        items: o.items,
+      }));
+    },
+
+    async findAllActiveStages() {
+      // Return the standard stages (test typically uses just AWAITING)
+      return stage ? [stage] : [];
+    },
+
+    async advanceOrder(orderId: string, kitchenDeviceId: string) {
+      const order = persisted.find((o) => o.id === orderId);
+      if (!order) throw new Error("ORDER_NOT_FOUND");
+
+      const current = order.currentStage;
+      if (current.semanticKey === "AWAITING_CONFIRMATION") {
+        throw new Error("ORDER_NOT_ADVANCEABLE");
+      }
+      if (current.semanticKey === "READY") {
+        throw new Error("ORDER_ALREADY_READY");
+      }
+
+      // Advance from ACCEPTED to IN_PROGRESS, or to READY
+      const nextStage: StageRow =
+        current.semanticKey === "ACCEPTED"
+          ? {
+              id: "stage-in-progress",
+              label: "Dimasak",
+              semanticKey: "IN_PROGRESS",
+              sortOrder: 3,
+            }
+          : {
+              id: "stage-ready",
+              label: "Siap",
+              semanticKey: "READY",
+              sortOrder: 4,
+            };
+
+      order.currentStage = nextStage;
+      history.push({ orderId, stageId: nextStage.id, actorType: "KDS" });
+
+      return { id: orderId, currentStage: nextStage };
+    },
   };
 
   return repo;

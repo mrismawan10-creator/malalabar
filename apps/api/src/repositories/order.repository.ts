@@ -120,6 +120,23 @@ export interface ActiveTableRow {
   unpaidTotal: number;
 }
 
+export interface KdsOrderRow {
+  id: string;
+  tableNumber: string;
+  batchNumber: number;
+  acceptedAt: string;
+  currentStage: StageRow;
+  items: Array<{
+    nameSnapshot: string;
+    quantity: number;
+    note: string | null;
+    customizations: Array<{
+      groupNameSnapshot: string;
+      optionNameSnapshot: string;
+    }>;
+  }>;
+}
+
 export interface OrderRepository {
   /** Soft-deleted items are omitted, so they read as "not on the menu". */
   findMenuItemsForOrder(ids: string[]): Promise<OrderMenuItemRow[]>;
@@ -153,6 +170,15 @@ export interface OrderRepository {
   ): Promise<{ id: string; rejected: boolean; rejectReason: string | null }>;
   /** Active tables with unpaid totals */
   findActiveTables(): Promise<ActiveTableRow[]>;
+  /** KDS orders: approved/in-progress, not yet READY, FIFO by acceptedAt */
+  findKdsOrders(): Promise<KdsOrderRow[]>;
+  /** Advance order to next active stage by sortOrder (State_Machine §1.3) */
+  advanceOrder(
+    orderId: string,
+    kitchenDeviceId: string,
+  ): Promise<{ id: string; currentStage: StageRow }>;
+  /** Get all active stages ordered by sortOrder, for advance algorithm */
+  findAllActiveStages(): Promise<StageRow[]>;
 }
 
 export function createPrismaOrderRepository(
@@ -453,6 +479,134 @@ export function createPrismaOrderRepository(
           readyCount,
           unpaidTotal,
         };
+      });
+    },
+
+    async findKdsOrders() {
+      const orders = await prisma.order.findMany({
+        where: {
+          rejected: false,
+          currentStage: {
+            semanticKey: { in: ["ACCEPTED", "IN_PROGRESS", "CUSTOM"] },
+          },
+        },
+        orderBy: { acceptedAt: "asc" },
+        select: {
+          id: true,
+          batchNumber: true,
+          acceptedAt: true,
+          session: { select: { table: { select: { number: true } } } },
+          currentStage: {
+            select: { id: true, label: true, semanticKey: true, sortOrder: true },
+          },
+          items: {
+            select: {
+              nameSnapshot: true,
+              quantity: true,
+              note: true,
+              customizations: {
+                select: {
+                  groupNameSnapshot: true,
+                  optionNameSnapshot: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      return orders
+        .filter((o) => o.acceptedAt !== null)
+        .map((o) => ({
+          id: o.id,
+          tableNumber: o.session.table.number,
+          batchNumber: o.batchNumber,
+          acceptedAt: o.acceptedAt!.toISOString(),
+          currentStage: o.currentStage,
+          items: o.items,
+        }));
+    },
+
+    async findAllActiveStages() {
+      return prisma.orderStatusStage.findMany({
+        where: { isActive: true },
+        orderBy: { sortOrder: "asc" },
+        select: { id: true, label: true, semanticKey: true, sortOrder: true },
+      });
+    },
+
+    async advanceOrder(orderId: string, kitchenDeviceId: string) {
+      return prisma.$transaction(async (tx) => {
+        // Get current order state
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          select: {
+            currentStageId: true,
+            currentStage: {
+              select: { id: true, label: true, semanticKey: true, sortOrder: true },
+            },
+            sessionId: true,
+          },
+        });
+
+        if (!order) throw new Error("ORDER_NOT_FOUND");
+
+        const current = order.currentStage;
+
+        // Guard: not in kitchen-advanceable territory
+        if (current.semanticKey === "AWAITING_CONFIRMATION") {
+          throw new Error("ORDER_NOT_ADVANCEABLE");
+        }
+
+        // Guard: already at READY or beyond
+        if (current.semanticKey === "READY") {
+          throw new Error("ORDER_ALREADY_READY");
+        }
+
+        // Implement nextStage algorithm (State_Machine §1.3)
+        const allStages = await tx.orderStatusStage.findMany({
+          where: { isActive: true },
+          orderBy: { sortOrder: "asc" },
+          select: { id: true, label: true, semanticKey: true, sortOrder: true },
+        });
+
+        const candidates = allStages.filter(
+          (s) =>
+            s.sortOrder > current.sortOrder &&
+            (s.semanticKey === "IN_PROGRESS" ||
+              s.semanticKey === "READY" ||
+              s.semanticKey === "CUSTOM"),
+        );
+
+        if (candidates.length === 0) {
+          throw new Error("NO_NEXT_STAGE");
+        }
+
+        const nextStage = candidates[0]!;
+
+        // Update order
+        const updated = await tx.order.update({
+          where: { id: orderId },
+          data: { currentStageId: nextStage.id },
+          select: {
+            id: true,
+            currentStage: {
+              select: { id: true, label: true, semanticKey: true, sortOrder: true },
+            },
+          },
+        });
+
+        // Add status history
+        await tx.orderStatusHistory.create({
+          data: {
+            orderId,
+            stageId: nextStage.id,
+            actorType: "KDS",
+            actorId: kitchenDeviceId,
+          },
+        });
+
+        return updated;
       });
     },
   };

@@ -1,4 +1,5 @@
 import type { StaffRole } from "@malalabar/types";
+import { verifyCustomerSessionToken } from "../lib/tokens.js";
 import type { SocketPrincipal } from "./principal.js";
 
 /**
@@ -19,12 +20,41 @@ function isStaffRole(value: string): value is StaffRole {
 }
 
 /**
- * STUB — replaced by real JWT verification when auth lands
- * (Build_Plan T1.3 customer session, T3.1 staff, T3.2 KDS device).
+ * The socket handshake accepts the same tokens HTTP does (Realtime_Events §1).
  *
- * Signs nothing and verifies nothing. It exists only so Slice 0 can prove a
- * client connects and lands in the right rooms. It therefore **rejects every
- * token in production** — shipping this stub cannot open a hole.
+ * Customer tokens are verified for real (T1.3). Staff and KDS tokens do not
+ * exist yet — T3.1 and T3.2 mint them — so those still fall through to the dev
+ * stub below, which is inert in production.
+ *
+ * The principal decides the rooms, so a customer socket can only ever land in
+ * its own `session:{sub}` (Auth_RBAC_Spec §3).
+ */
+export function createSocketTokenVerifier(
+  nodeEnv: string,
+): SocketTokenVerifier {
+  const stub = createStubTokenVerifier(nodeEnv);
+
+  return (token: string): SocketPrincipal | null => {
+    try {
+      const claims = verifyCustomerSessionToken(token);
+      return {
+        type: "customer_session",
+        sessionId: claims.sub,
+        tableId: claims.tableId,
+      };
+    } catch {
+      // Not a customer token — may still be a dev staff/KDS one.
+    }
+
+    return stub(token) as SocketPrincipal | null;
+  };
+}
+
+/**
+ * STUB — staff and KDS only, until Build_Plan T3.1 / T3.2 mint real tokens.
+ *
+ * Signs nothing and verifies nothing, so it **rejects every token in
+ * production** — shipping it cannot open a hole.
  *
  * Accepted dev token formats (non-production only):
  *   dev:customer:<sessionId>:<tableId>

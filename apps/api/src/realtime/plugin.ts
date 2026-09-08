@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
 import { config } from "../config.js";
 import { RealtimeGateway } from "./gateway.js";
-import { createStubTokenVerifier } from "./verify-token.js";
+import { createSocketTokenVerifier } from "./verify-token.js";
 import type { SocketTokenVerifier } from "./verify-token.js";
 
 declare module "fastify" {
@@ -23,8 +23,9 @@ interface RealtimeOptions {
 const realtime: FastifyPluginAsync<RealtimeOptions> = async (app, opts) => {
   const gateway = new RealtimeGateway(app.server, {
     corsOrigins: config.CORS_ORIGINS.split(",").map((o) => o.trim()),
-    // STUB until Build_Plan T1.3 / T3.1 / T3.2 — see verify-token.ts.
-    verifyToken: opts.verifyToken ?? createStubTokenVerifier(config.NODE_ENV),
+    // Customer tokens are verified for real; staff/KDS remain stubbed until
+    // T3.1 / T3.2 — see verify-token.ts.
+    verifyToken: opts.verifyToken ?? createSocketTokenVerifier(config.NODE_ENV),
     onError: (err) => app.log.error(err),
   });
 

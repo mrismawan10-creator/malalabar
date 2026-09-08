@@ -65,6 +65,11 @@ export interface MenuRepository {
   /** Active promos whose item still exists (PRD 4.2.1). */
   listActivePromos(): Promise<ActivePromoRow[]>;
   findItemDetail(id: string): Promise<MenuItemDetailRow | null>;
+  updateItemsAvailability(itemIds: string[], isAvailable: boolean): Promise<MenuItemRow[]>;
+  updateItemPromo(
+    itemId: string,
+    promo: { promoPrice?: number; label?: string; isActive: boolean },
+  ): Promise<MenuItemRow>;
 }
 
 export function createPrismaMenuRepository(
@@ -151,6 +156,83 @@ export function createPrismaMenuRepository(
           },
         },
       });
+    },
+
+    async updateItemsAvailability(itemIds, isAvailable) {
+      const items = await prisma.menuItem.updateMany({
+        where: { id: { in: itemIds }, isDeleted: false },
+        data: { isAvailable },
+      });
+
+      return prisma.menuItem.findMany({
+        where: { id: { in: itemIds } },
+        orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          imageUrl: true,
+          basePrice: true,
+          categoryId: true,
+          isAvailable: true,
+          promo: { select: { promoPrice: true, label: true, isActive: true } },
+          _count: { select: { customizationGroups: true } },
+        },
+      }).then((rows) =>
+        rows.map(({ _count, ...item }) => ({
+          ...item,
+          customizationGroupCount: _count.customizationGroups,
+        })),
+      );
+    },
+
+    async updateItemPromo(itemId, promo) {
+      if (promo.isActive && promo.promoPrice === undefined) {
+        throw new Error("promoPrice required when enabling promo");
+      }
+
+      if (!promo.isActive) {
+        await prisma.promo.deleteMany({
+          where: { menuItemId: itemId },
+        });
+      } else {
+        await prisma.promo.upsert({
+          where: { menuItemId: itemId },
+          create: {
+            menuItemId: itemId,
+            promoPrice: promo.promoPrice!,
+            label: promo.label || null,
+            isActive: true,
+          },
+          update: {
+            promoPrice: promo.promoPrice!,
+            label: promo.label || null,
+            isActive: true,
+          },
+        });
+      }
+
+      const item = await prisma.menuItem.findUnique({
+        where: { id: itemId },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          imageUrl: true,
+          basePrice: true,
+          categoryId: true,
+          isAvailable: true,
+          promo: { select: { promoPrice: true, label: true, isActive: true } },
+          _count: { select: { customizationGroups: true } },
+        },
+      });
+
+      if (!item) throw new Error(`item ${itemId} not found`);
+
+      return {
+        ...item,
+        customizationGroupCount: item._count.customizationGroups,
+      };
     },
   };
 }

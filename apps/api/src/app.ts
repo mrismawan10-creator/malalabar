@@ -129,6 +129,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     }),
     sessionRepository,
     tableRepository,
+    menuRepository,
   });
 
   return app;

@@ -16,6 +16,7 @@ import { MenuCard } from "@/components/menu-card";
 import { PromoCarousel } from "@/components/promo-carousel";
 import { applyAccent } from "@/lib/theme";
 import { useCart } from "@/lib/use-cart";
+import { useMenuUpdates } from "@/lib/use-menu-updates";
 import {
   clearSession,
   readSession,
@@ -111,6 +112,9 @@ function OrderScreen() {
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+
+  // Listen for live menu updates (availability & promo toggles)
+  useMenuUpdates(stored?.sessionToken ?? null, setMenu, menu);
 
   // Item detail is fetched on demand — the grid payload deliberately omits
   // customization groups (API_Contract §3).

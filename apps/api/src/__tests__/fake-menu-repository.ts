@@ -139,5 +139,35 @@ export function createFakeMenuRepository(
     async findItemDetail(id) {
       return data.details[id] ?? null;
     },
+    async updateItemsAvailability(itemIds, isAvailable) {
+      const updated: MenuItemRow[] = [];
+      for (const item of data.items) {
+        if (itemIds.includes(item.id)) {
+          item.isAvailable = isAvailable;
+          updated.push(item);
+        }
+      }
+      return updated;
+    },
+    async updateItemPromo(itemId, promo) {
+      const item = data.items.find((i) => i.id === itemId);
+      if (!item) throw new Error(`item ${itemId} not found`);
+
+      if (promo.isActive && promo.promoPrice === undefined) {
+        throw new Error("promoPrice required when enabling promo");
+      }
+
+      if (!promo.isActive) {
+        item.promo = null;
+      } else {
+        item.promo = {
+          promoPrice: promo.promoPrice!,
+          label: promo.label || null,
+          isActive: true,
+        };
+      }
+
+      return item;
+    },
   };
 }

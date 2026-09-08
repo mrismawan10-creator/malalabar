@@ -51,4 +51,18 @@ export const orderRoutes: FastifyPluginAsync<Options> = async (
       return reply.status(201).send(result);
     },
   );
+
+  app.get(
+    "/sessions/:sessionId/orders",
+    { preHandler: guard },
+    async (request) => {
+      const { sessionId } = paramsSchema.parse(request.params);
+      return orderService.list(request.customerSession?.sessionId ?? sessionId);
+    },
+  );
+
+  app.get("/sessions/:sessionId/bill", { preHandler: guard }, async (request) => {
+    const { sessionId } = paramsSchema.parse(request.params);
+    return orderService.bill(request.customerSession?.sessionId ?? sessionId);
+  });
 };

@@ -202,6 +202,16 @@ res:  {
         enabledPaymentMethods: ["CASH","CARD","ONLINE"]
       }
 ```
+`subtotal` is the sum of **stored** `lineTotal` values, never recomputed against the live
+menu (CLAUDE.md hard rule 3). Tax and service are `floor(subtotal * percent / 100)` and are
+omitted (0) when disabled in settings (Data_Model §3.6).
+
+These amounts are a **live preview, not a commitment**: payment initiation recomputes them
+and freezes the result on the `Payment` row (T4.1), so a settings change between viewing the
+bill and paying cannot move an in-flight payment.
+
+Rejected batches are excluded. Both endpoints are scoped to the token's own session — a
+mismatched `:sessionId` is 403.
 
 ### `POST /sessions/:sessionId/payment`  ← initiate payment
 ```

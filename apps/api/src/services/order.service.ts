@@ -1,15 +1,20 @@
 import type {
+  BillResponse,
   CreateOrderItemRequest,
   CreateOrderResponse,
   OrderItemSnapshot,
+  OrderListResponse,
+  PaymentMethod,
 } from "@malalabar/types";
 import { AppError } from "../lib/errors.js";
 import type {
   OrderMenuItemRow,
   OrderRepository,
   PersistOrderInput,
+  SessionOrderRow,
   StageRow,
 } from "../repositories/order.repository.js";
+import type { SettingsRepository } from "../repositories/session.repository.js";
 
 interface PricedItem {
   persist: PersistOrderInput["items"][number];
@@ -114,14 +119,46 @@ function priceItem(
   };
 }
 
+/**
+ * Whole-percent charge on an integer Rupiah base, floored (Data_Model §3.6).
+ *
+ * Floor, not round: the restaurant never charges a Rupiah the percentage did
+ * not earn. Money is integer minor units throughout (hard rule 7), so this
+ * never touches a float.
+ */
+export function percentAmount(base: number, percent: number): number {
+  if (base <= 0 || percent <= 0) return 0;
+  return Math.floor((base * percent) / 100);
+}
+
+function toOrderItems(row: SessionOrderRow): OrderItemSnapshot[] {
+  return row.items.map((item) => ({
+    nameSnapshot: item.nameSnapshot,
+    quantity: item.quantity,
+    // The effective price is derivable from the frozen columns; it is not
+    // stored twice. Promo wins when one was captured at submit time.
+    unitEffectivePrice: item.unitPromoPrice ?? item.unitBasePrice,
+    lineTotal: item.lineTotal,
+    customizations: item.customizations,
+    note: item.note,
+  }));
+}
+
 export interface OrderService {
   submit(
     sessionId: string,
     items: CreateOrderItemRequest[],
   ): Promise<CreateOrderResponse>;
+  list(sessionId: string): Promise<OrderListResponse>;
+  bill(sessionId: string): Promise<BillResponse>;
 }
 
-export function createOrderService(repo: OrderRepository): OrderService {
+export function createOrderService(deps: {
+  orders: OrderRepository;
+  settings: SettingsRepository;
+}): OrderService {
+  const repo = deps.orders;
+
   return {
     async submit(sessionId, items) {
       const stage = await repo.findActiveStageBySemantic(
@@ -170,6 +207,78 @@ export function createOrderService(repo: OrderRepository): OrderService {
           items: priced.map((p) => p.snapshot),
           createdAt: order.createdAt.toISOString(),
         },
+      };
+    },
+
+    async list(sessionId) {
+      const rows = await repo.listBySession(sessionId);
+      return {
+        orders: rows.map((row) => ({
+          id: row.id,
+          batchNumber: row.batchNumber,
+          currentStage: toStageInfo(row.currentStage),
+          rejected: row.rejected,
+          rejectReason: row.rejectReason,
+          items: toOrderItems(row),
+          createdAt: row.createdAt.toISOString(),
+        })),
+      };
+    },
+
+    async bill(sessionId) {
+      const [rows, settings] = await Promise.all([
+        repo.listBySession(sessionId),
+        deps.settings.get(),
+      ]);
+      if (!settings) {
+        throw new AppError(
+          "SETTINGS_MISSING",
+          "Restoran belum dikonfigurasi",
+          503,
+        );
+      }
+
+      // A rejected batch was never accepted, so the customer owes nothing for
+      // it (API_Contract §3).
+      //
+      // NOTE for T7.4: superadmin cancellation must also drop out here. The
+      // schema has no cancelled flag today — only `rejected` — so whoever
+      // implements cancel has to extend this filter, or cancelled orders will
+      // silently keep billing.
+      const billable = rows.filter((row) => !row.rejected);
+
+      const lines = billable.flatMap((row) =>
+        row.items.map((item) => ({
+          nameSnapshot: item.nameSnapshot,
+          quantity: item.quantity,
+          lineTotal: item.lineTotal,
+          customizations: item.customizations,
+        })),
+      );
+
+      // Sum the stored line totals. Never recompute from the live menu —
+      // that is the whole point of snapshotting (CLAUDE.md hard rule 3).
+      const subtotal = lines.reduce((sum, line) => sum + line.lineTotal, 0);
+
+      const taxAmount = settings.taxEnabled
+        ? percentAmount(subtotal, settings.taxPercent)
+        : 0;
+      const serviceAmount = settings.serviceEnabled
+        ? percentAmount(subtotal, settings.servicePercent)
+        : 0;
+
+      const enabledPaymentMethods: PaymentMethod[] = [];
+      if (settings.cashEnabled) enabledPaymentMethods.push("CASH");
+      if (settings.cardEnabled) enabledPaymentMethods.push("CARD");
+      if (settings.onlineEnabled) enabledPaymentMethods.push("ONLINE");
+
+      return {
+        lines,
+        subtotal,
+        taxAmount,
+        serviceAmount,
+        totalAmount: subtotal + taxAmount + serviceAmount,
+        enabledPaymentMethods,
       };
     },
   };

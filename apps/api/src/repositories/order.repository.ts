@@ -71,9 +71,26 @@ export interface PersistedOrderRow {
   }>;
 }
 
+/** One order batch as stored, for the tracking screen and the bill. */
+export interface SessionOrderRow {
+  id: string;
+  batchNumber: number;
+  rejected: boolean;
+  rejectReason: string | null;
+  createdAt: Date;
+  currentStage: StageRow;
+  items: PersistedOrderRow["items"];
+}
+
 export interface OrderRepository {
   /** Soft-deleted items are omitted, so they read as "not on the menu". */
   findMenuItemsForOrder(ids: string[]): Promise<OrderMenuItemRow[]>;
+  /**
+   * Every batch in the session, oldest first. Rejected orders are included —
+   * the tracking screen shows them, and the bill filters them out itself, so
+   * both endpoints read through this one query.
+   */
+  listBySession(sessionId: string): Promise<SessionOrderRow[]>;
   findActiveStageBySemantic(semantic: StageSemantic): Promise<StageRow | null>;
   /**
    * Assigns `batchNumber` and writes order + items + customizations + history +
@@ -118,6 +135,45 @@ export function createPrismaOrderRepository(
         where: { semanticKey: semantic, isActive: true },
         orderBy: { sortOrder: "asc" },
         select: { id: true, label: true, semanticKey: true, sortOrder: true },
+      });
+    },
+
+    async listBySession(sessionId) {
+      return prisma.order.findMany({
+        where: { sessionId },
+        orderBy: { batchNumber: "asc" },
+        select: {
+          id: true,
+          batchNumber: true,
+          rejected: true,
+          rejectReason: true,
+          createdAt: true,
+          currentStage: {
+            select: {
+              id: true,
+              label: true,
+              semanticKey: true,
+              sortOrder: true,
+            },
+          },
+          items: {
+            select: {
+              nameSnapshot: true,
+              unitBasePrice: true,
+              unitPromoPrice: true,
+              quantity: true,
+              note: true,
+              lineTotal: true,
+              customizations: {
+                select: {
+                  groupNameSnapshot: true,
+                  optionNameSnapshot: true,
+                  surchargeSnapshot: true,
+                },
+              },
+            },
+          },
+        },
       });
     },
 

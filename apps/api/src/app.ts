@@ -123,7 +123,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
       settings: settingsRepository,
     }),
     menuService: createMenuService(menuRepository),
-    orderService: createOrderService(orderRepository),
+    orderService: createOrderService({
+      orders: orderRepository,
+      settings: settingsRepository,
+    }),
     sessionRepository,
   });
 

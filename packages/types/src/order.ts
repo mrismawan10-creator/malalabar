@@ -1,4 +1,4 @@
-import type { StageInfo } from "./events.js";
+import type { PaymentMethod, StageInfo } from "./events.js";
 
 /**
  * Order submission — API_Contract.md §3 (`POST /sessions/:sessionId/orders`).
@@ -55,4 +55,42 @@ export interface CustomerOrder {
 
 export interface CreateOrderResponse {
   order: CustomerOrder;
+}
+
+/**
+ * Tracking screen — `GET /sessions/:sessionId/orders`.
+ * Every batch in the session, rejected ones included, so the customer can see
+ * what happened to each rather than watching a card silently disappear.
+ */
+export interface CustomerOrderSummary extends CustomerOrder {
+  rejected: boolean;
+  rejectReason: string | null;
+}
+
+export interface OrderListResponse {
+  orders: CustomerOrderSummary[];
+}
+
+/** One billable line, flattened out of its order batch. */
+export interface BillLine {
+  nameSnapshot: string;
+  quantity: number;
+  lineTotal: number;
+  customizations: OrderItemCustomizationSnapshot[];
+}
+
+/**
+ * `GET /sessions/:sessionId/bill` — a live preview across all non-rejected
+ * orders. These amounts are **not** authoritative: payment initiation
+ * recomputes and freezes them on the Payment row (Data_Model §3.6, T4.1), so a
+ * settings change between viewing and paying cannot move a frozen bill.
+ */
+export interface BillResponse {
+  lines: BillLine[];
+  /** Sum of stored lineTotals — never recomputed from the live menu. */
+  subtotal: number;
+  taxAmount: number;
+  serviceAmount: number;
+  totalAmount: number;
+  enabledPaymentMethods: PaymentMethod[];
 }

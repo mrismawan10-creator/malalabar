@@ -4,6 +4,7 @@ import type {
   OrderRepository,
   PersistedOrderRow,
   PersistOrderInput,
+  SessionOrderRow,
   StageRow,
 } from "../repositories/order.repository.js";
 
@@ -88,6 +89,8 @@ export function createFakeOrderRepository(options: {
   stage?: StageRow | null;
 } = {}): OrderRepository & {
   saved(): SavedOrder[];
+  /** Marks a stored batch rejected, as the cashier would (T3.3). */
+  reject(batchNumber: number, reason: string): void;
   history(): Array<{ orderId: string; stageId: string; actorType: string }>;
   sessionTouched(): string[];
   /** Runs before each persist — used to simulate a batch-number race. */
@@ -104,6 +107,7 @@ export function createFakeOrderRepository(options: {
   }> = [];
   const touched: string[] = [];
   const batchesBySession = new Map<string, number[]>();
+  const persisted: Array<SessionOrderRow & { sessionId: string }> = [];
 
   const repo = {
     saved: () => [...saved],
@@ -119,6 +123,21 @@ export function createFakeOrderRepository(options: {
 
     async findActiveStageBySemantic(semantic: StageSemantic) {
       return stage && stage.semanticKey === semantic ? stage : null;
+    },
+
+    async listBySession(sessionId: string): Promise<SessionOrderRow[]> {
+      return persisted
+        .filter((row) => row.sessionId === sessionId)
+        .sort((a, b) => a.batchNumber - b.batchNumber)
+        .map(({ sessionId: _sessionId, ...row }) => row);
+    },
+
+    /** Test hook: mark a stored batch rejected, as the cashier would (T3.3). */
+    reject(batchNumber: number, reason: string) {
+      const row = persisted.find((r) => r.batchNumber === batchNumber);
+      if (!row) throw new Error(`no such batch ${batchNumber}`);
+      row.rejected = true;
+      row.rejectReason = reason;
     },
 
     async persistOrder(input: PersistOrderInput): Promise<PersistedOrderRow> {
@@ -143,7 +162,7 @@ export function createFakeOrderRepository(options: {
       });
       touched.push(input.sessionId);
 
-      return {
+      const row = {
         id,
         batchNumber,
         createdAt: new Date(),
@@ -157,6 +176,16 @@ export function createFakeOrderRepository(options: {
           customizations: item.customizations,
         })),
       };
+
+      persisted.push({
+        ...row,
+        sessionId: input.sessionId,
+        rejected: false,
+        rejectReason: null,
+        currentStage: stage ?? AWAITING,
+      });
+
+      return row;
     },
   };
 

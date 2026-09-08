@@ -11,6 +11,7 @@ import type { TableService } from "../services/table.service.js";
 import type { CashierService } from "../services/cashier.service.js";
 import type { KdsService } from "../services/kds.service.js";
 import type { PaymentService } from "../services/payment.service.js";
+import type { MidtransWebhookService } from "../services/midtrans-webhook.service.js";
 import { adminTableRoutes } from "./admin/tables.js";
 import { healthRoutes } from "./health.js";
 import { kitchenDeviceAuthRoutes } from "./kitchen-device-auth.js";
@@ -21,6 +22,7 @@ import { sessionRoutes } from "./sessions.js";
 import { staffAuthRoutes } from "./staff-auth.js";
 import { cashierRoutes } from "./cashier.js";
 import { kdsRoutes } from "./kds.js";
+import { webhookRoutes } from "./webhooks.js";
 
 export interface RouteOptions {
   tableService: TableService;
@@ -32,6 +34,7 @@ export interface RouteOptions {
   cashierService: CashierService;
   kdsService: KdsService;
   paymentService: PaymentService;
+  midtransWebhook: MidtransWebhookService;
   sessionRepository: SessionRepository;
   tableRepository: TableRepository;
   menuRepository: MenuRepository;
@@ -68,5 +71,8 @@ export const registerRoutes: FastifyPluginAsync<RouteOptions> = async (
   });
   await app.register(menuAdminRoutes, {
     menuRepository: opts.menuRepository,
+  });
+  await app.register(webhookRoutes, {
+    midtransWebhook: opts.midtransWebhook,
   });
 };

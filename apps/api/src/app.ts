@@ -36,6 +36,7 @@ import { createCashierService } from "./services/cashier.service.js";
 import { createKdsService } from "./services/kds.service.js";
 import { createPaymentService } from "./services/payment.service.js";
 import { createMidtransService } from "./services/midtrans.service.js";
+import { createMidtransWebhookService } from "./services/midtrans-webhook.service.js";
 import { registerRoutes } from "./routes/index.js";
 
 export interface BuildAppOptions {
@@ -162,6 +163,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
     paymentService: createPaymentService({
       prisma: prisma!,
       midtrans: createMidtransService({ config }),
+    }),
+    midtransWebhook: createMidtransWebhookService({
+      prisma: prisma!,
+      gateway: app.gateway,
     }),
     sessionRepository,
     tableRepository,

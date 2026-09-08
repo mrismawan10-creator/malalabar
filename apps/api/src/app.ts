@@ -4,9 +4,16 @@ import { ZodError } from "zod";
 import type { ApiError } from "@malalabar/types";
 import { config } from "./config.js";
 import { AppError } from "./lib/errors.js";
+import type { SocketTokenVerifier } from "./realtime/index.js";
+import { realtimePlugin } from "./realtime/index.js";
 import { registerRoutes } from "./routes/index.js";
 
-export async function buildApp() {
+export interface BuildAppOptions {
+  /** Override the socket handshake verifier (tests; real JWT verifier later). */
+  verifyToken?: SocketTokenVerifier;
+}
+
+export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
     logger: config.NODE_ENV !== "test",
   });
@@ -54,6 +61,9 @@ export async function buildApp() {
       error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" },
     } satisfies ApiError);
   });
+
+  // Socket.io shares this Fastify HTTP server (SDD_Core §3).
+  await app.register(realtimePlugin, { verifyToken: options.verifyToken });
 
   await app.register(registerRoutes, { prefix: "/api/v1" });
 

@@ -116,6 +116,29 @@ These keep realtime consistent and the scale path cheap (SDD ADR-5):
 4. **Payloads are typed** in `packages/types`; the gateway imports them. A payload shape change is a contract change (update this doc + types in the same task).
 5. Because every emit is funnelled through the gateway, adding `@socket.io/redis-adapter` for horizontal scaling later is a single-file change. Do not pre-build it for V1.
 
+### 6.1 Gateway method surface
+
+`apps/api/src/realtime/gateway.ts` is the only file that touches `io`. Services call these
+methods — never a socket, never `io.emit`. Two payloads carry no `sessionId`, so the room is
+passed explicitly as the first argument.
+
+| Gateway method | Emits | Rooms |
+|---|---|---|
+| `orderCreated(payload)` | `order:created` | `cashier` |
+| `orderStatusChanged(payload)` | `order:status` | `session:{payload.sessionId}`, `cashier`, `kds` |
+| `orderRejected(sessionId, payload)` | `order:rejected` | `session:{sessionId}` |
+| `orderApproved(payload)` | `order:approved` | `kds` |
+| `orderReady(payload)` | `order:ready` | `cashier` |
+| `orderCancelled(sessionId, payload)` | `order:cancelled` | `session:{sessionId}`, `cashier`, `kds` |
+| `menuAvailabilityChanged(payload)` | `menu:availability` | `menu` |
+| `menuPromoChanged(payload)` | `menu:promo` | `menu` |
+| `paymentConfirmed(payload)` | `payment:confirmed` | `session:{payload.sessionId}`, `cashier` |
+| `paymentFailed(payload)` | `payment:failed` | `session:{payload.sessionId}` |
+| `sessionClosed(payload)` | `session:closed` | `session:{payload.sessionId}`, `cashier` |
+
+The gateway is reached as `app.gateway` / `request.server.gateway` (Fastify decorator). It also
+exposes read-only `roomSize(room)` and `connectionCount()` for health checks and tests.
+
 ---
 
 ## 7. Event → room → listener quick map

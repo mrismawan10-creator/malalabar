@@ -34,6 +34,7 @@ import { createKitchenDeviceAuthService } from "./services/kitchen-device-auth.s
 import { createTableService } from "./services/table.service.js";
 import { createCashierService } from "./services/cashier.service.js";
 import { createKdsService } from "./services/kds.service.js";
+import { createPaymentService } from "./services/payment.service.js";
 import { registerRoutes } from "./routes/index.js";
 
 export interface BuildAppOptions {
@@ -157,6 +158,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       prisma: prisma!,
       gateway: app.gateway,
     }),
+    paymentService: createPaymentService({ prisma: prisma! }),
     sessionRepository,
     tableRepository,
     menuRepository,

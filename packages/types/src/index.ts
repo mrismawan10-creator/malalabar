@@ -5,6 +5,7 @@ export * from "./kds.js";
 export * from "./menu.js";
 export * from "./order.js";
 export * from "./pagination.js";
+export * from "./payment.js";
 export * from "./session.js";
 export * from "./staff.js";
 export * from "./table.js";

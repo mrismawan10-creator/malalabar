@@ -10,6 +10,7 @@ import type { KitchenDeviceAuthService } from "../services/kitchen-device-auth.s
 import type { TableService } from "../services/table.service.js";
 import type { CashierService } from "../services/cashier.service.js";
 import type { KdsService } from "../services/kds.service.js";
+import type { PaymentService } from "../services/payment.service.js";
 import { adminTableRoutes } from "./admin/tables.js";
 import { healthRoutes } from "./health.js";
 import { kitchenDeviceAuthRoutes } from "./kitchen-device-auth.js";
@@ -30,6 +31,7 @@ export interface RouteOptions {
   kitchenDeviceAuthService: KitchenDeviceAuthService;
   cashierService: CashierService;
   kdsService: KdsService;
+  paymentService: PaymentService;
   sessionRepository: SessionRepository;
   tableRepository: TableRepository;
   menuRepository: MenuRepository;
@@ -44,7 +46,11 @@ export const registerRoutes: FastifyPluginAsync<RouteOptions> = async (
   await app.register(kitchenDeviceAuthRoutes, {
     kitchenDeviceAuth: opts.kitchenDeviceAuthService,
   });
-  await app.register(sessionRoutes, { sessionService: opts.sessionService });
+  await app.register(sessionRoutes, {
+    sessionService: opts.sessionService,
+    paymentService: opts.paymentService,
+    sessions: opts.sessionRepository,
+  });
   await app.register(menuRoutes, {
     menuService: opts.menuService,
     sessions: opts.sessionRepository,

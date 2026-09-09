@@ -331,9 +331,11 @@ POST   /admin/menu/availability/bulk              { ids: string[], isAvailable }
 Image upload: client uploads to Cloudinary (signed), sends back the resulting `imageUrl`. Max 2MB, JPG/PNG enforced client + server.
 ```
 POST   /admin/uploads/sign                          → { upload: { cloudName, apiKey, timestamp, signature,
-                                                                  folder, allowedFormats, uploadUrl, maxBytes } }
+                                                                  signedParams: { [k]: v }, folder,
+                                                                  allowedFormats, transformation,
+                                                                  uploadUrl, maxBytes } }
 ```
-The browser POSTs `file` plus every signed param (`timestamp`, `folder`, `allowed_formats`, `api_key`, `signature`) to `uploadUrl` and sends back `secure_url` as `imageUrl`. 503 `UPLOAD_NOT_CONFIGURED` when `CLOUDINARY_URL` is unset. On create/patch the API re-validates `imageUrl` before saving: it must be `https://res.cloudinary.com/<our cloud>/image/upload/…/malalabar/menu/…`, and a HEAD must report `image/jpeg|png` and ≤ 2 MB — otherwise 422 (`IMAGE_URL_INVALID`, `IMAGE_TYPE_INVALID`, `IMAGE_TOO_LARGE`, `IMAGE_UNREACHABLE`).
+The browser POSTs `file`, `api_key`, `signature` and **every entry of `signedParams` verbatim** to `uploadUrl`, then sends back `secure_url` as `imageUrl`. `signedParams` is the authoritative list (today: `timestamp`, `folder`, `allowed_formats`, `transformation`); clients must not hard-code it, because any param missing from the form makes Cloudinary reject the signature. `transformation` (`c_limit,w_1600,h_1600,q_auto:good`) is applied by Cloudinary as the file is stored, so originals are capped at 1600 px; being inside the signature, a client cannot drop it. The admin app crops every photo to **4:3 at 1600×1200 JPEG in the browser** before uploading (owner pans/zooms; minimum zoom is "cover"), so stored menu images share one ratio and the 2 MB rule applies to that result. Per-slot sizing (4:3 card, square thumb, 4:3 detail) is done at delivery time by `imageUrl(url, slot)` in `packages/ui`, which injects `c_fill,g_auto,…,f_auto,q_auto` — subject-aware crop, WebP/AVIF, 2× for retina — and passes non-Cloudinary URLs through unchanged. 503 `UPLOAD_NOT_CONFIGURED` when `CLOUDINARY_URL` is unset. On create/patch the API re-validates `imageUrl` before saving: it must be `https://res.cloudinary.com/<our cloud>/image/upload/…/malalabar/menu/…`, and a HEAD must report `image/jpeg|png` and ≤ 2 MB — otherwise 422 (`IMAGE_URL_INVALID`, `IMAGE_TYPE_INVALID`, `IMAGE_TOO_LARGE`, `IMAGE_UNREACHABLE`).
 
 Realtime: availability changes (single, bulk, and the implicit one on DELETE) emit **one** `menu:availability`; a `basePrice` change on an item with an active promo re-emits `menu:promo` because `discountPercent` is derived. Create/edit of other fields is not pushed — customers pick it up on their next menu load. Every write is audited under the acting staff (hard rule 9). Customization groups are read back on `GET /admin/menu/:id` but edited via the dedicated endpoints below (not yet implemented).
 
@@ -357,12 +359,18 @@ DELETE /admin/promos/:id
 DB enforces one promo per item via unique `menuItemId` (Data_Model §3.3); the service answers 409 `PROMO_EXISTS` before the index does. A new promo starts **active**. `promoPrice` must be below the item's `basePrice` (422 `PROMO_PRICE_INVALID`). Create, edit, toggle and delete all emit `menu:promo` (`promo: null` when inactive or deleted).
 
 ### Customization groups (nested under a menu item)
-Managed through `POST/PATCH /admin/menu/:id` payloads (groups + options inline), OR dedicated:
+Dedicated endpoints (the inline-in-`PATCH /admin/menu/:id` variant is not implemented):
 ```
-POST   /admin/menu/:id/customization-groups         { name, type, isRequired, options: [{name, surchargePrice}] }
-PATCH  /admin/customization-groups/:groupId
-DELETE /admin/customization-groups/:groupId
+POST   /admin/menu/:id/customization-groups          { name, type: SINGLE_SELECT|MULTI_SELECT, isRequired, options?: [{name, surchargePrice}] } → 201 { group }
+PATCH  /admin/customization-groups/:groupId           { name?, type?, isRequired? }                    → { group }
+DELETE /admin/customization-groups/:groupId           (cascades to options)                             → { ok }
+POST   /admin/customization-groups/:groupId/options   { name, surchargePrice }                          → 201 { option }
+PATCH  /admin/customization-options/:id               { name?, surchargePrice?, isAvailable? }          → { option }
+DELETE /admin/customization-options/:id                                                                 → { ok }
+POST   /admin/customization-options/:id/availability  { isAvailable }  → { option: { id, name, isAvailable, groupId, menuItemId } }
 ```
+`group` = `{ id, name, type, isRequired, options: [{ id, name, surchargePrice, isAvailable }] }`. New options start available; `sortOrder` follows creation order. Rules: a **required** group must keep at least one *available* option, otherwise its item becomes unorderable (`REQUIRED_OPTION_MISSING` at order time) — so creating a required group with no options, marking a group required while all its options are sold out, or disabling/deleting the last available option of a required group is refused with 422 (`GROUP_NEEDS_OPTIONS` / `LAST_REQUIRED_OPTION`). Deleting groups/options never touches past orders: they hold snapshots. 404 `GROUP_NOT_FOUND` / `OPTION_NOT_FOUND` when missing or the item is soft-deleted. All writes audited; no realtime event (detail is fetched when opened).
+Per-option availability ("Tambah Telur habis"): the option stays listed in `GET /menu/items/:id` with `isAvailable: false` so the customer sees why it cannot be picked; `POST /sessions/:id/orders` rejects a chosen sold-out option with 422 `OPTION_UNAVAILABLE`, the same status as a sold-out item (hard rule 2). Audited; no realtime event — the detail is fetched each time it is opened. 404 `OPTION_NOT_FOUND` if the option does not exist or its item is soft-deleted.
 
 ### Tables & QR
 ```

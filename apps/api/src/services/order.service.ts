@@ -81,6 +81,10 @@ function priceItem(
     }
 
     for (const option of chosen) {
+      // Same rule as a sold-out item: the client only sends intent (hard rule 2).
+      if (!option.isAvailable) {
+        throw new AppError("OPTION_UNAVAILABLE", `${option.name} sedang habis`, 422);
+      }
       surchargeTotal += option.surchargePrice;
       customizations.push({
         groupNameSnapshot: group.name,

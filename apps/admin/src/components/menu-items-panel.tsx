@@ -4,11 +4,20 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   AdminCategory,
   AdminMenuItem,
+  AdminMenuItemDetail,
   AdminMenuStatusFilter,
   CreateMenuItemRequest,
 } from "@malalabar/types";
+import { imageUrl } from "@malalabar/ui";
 import { AdminApiError, adminFetch, rupiah } from "@/lib/admin-api";
 import { uploadMenuImage } from "@/lib/cloudinary-upload";
+import { ImageCropEditor } from "./image-crop-editor";
+import { CustomizationEditor } from "./customization-editor";
+
+/** Source photos are cropped and re-encoded in the browser, so only the
+ *  *result* is bound by the 2 MB upload rule; the source just has to be sane. */
+const MAX_SOURCE_BYTES = 15 * 1024 * 1024;
+const SOURCE_TYPES = new Set(["image/jpeg", "image/png"]);
 
 type Draft = {
   name: string;
@@ -53,6 +62,8 @@ export function MenuItemsPanel({
   const [draft, setDraft] = useState<Draft>(emptyDraft(""));
   const [formError, setFormError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const [optionGroups, setOptionGroups] = useState<AdminMenuItemDetail["customizationGroups"]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -118,8 +129,10 @@ export function MenuItemsPanel({
   const openNew = () => {
     setDraft(emptyDraft(categories[0]?.id ?? ""));
     setFormError(null);
+    setOptionGroups([]);
     setEditing("new");
   };
+
 
   const openEdit = (item: AdminMenuItem) => {
     setDraft({
@@ -132,12 +145,25 @@ export function MenuItemsPanel({
     });
     setFormError(null);
     setEditing(item);
+    // Options live on the detail payload; fetched on demand so the list stays light.
+    setOptionGroups([]);
+    adminFetch<{ item: AdminMenuItemDetail }>(`/admin/menu/${item.id}`, token)
+      .then((res) => setOptionGroups(res.item.customizationGroups))
+      .catch(() => {});
   };
 
-  const onPickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onPickImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
+    setFormError(null);
+    if (!SOURCE_TYPES.has(file.type)) return setFormError("Format foto harus JPG atau PNG");
+    if (file.size > MAX_SOURCE_BYTES) return setFormError("Foto terlalu besar (maks 15 MB)");
+    setCropFile(file);
+  };
+
+  const uploadCropped = async (file: File) => {
+    setCropFile(null);
     setUploading(true);
     setFormError(null);
     try {
@@ -312,7 +338,7 @@ export function MenuItemsPanel({
                       <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-surface-line bg-surface-page">
                         {item.imageUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={item.imageUrl} alt="" className="h-full w-full object-cover" />
+                          <img src={imageUrl(item.imageUrl, "adminThumb")} alt="" className="h-full w-full object-cover" />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center text-base opacity-40">
                             🍽️
@@ -376,16 +402,19 @@ export function MenuItemsPanel({
 
       {editing && (
         <div className="fixed inset-0 bg-ink/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface-raised border border-surface-line rounded-lg max-w-lg w-full p-6 space-y-4">
-            <h2 className="text-lg font-bold text-ink">
+          {/* Capped to the viewport: the body scrolls, the action bar stays put. */}
+          <div className="bg-surface-raised border border-surface-line rounded-lg max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <h2 className="shrink-0 border-b border-surface-line px-6 py-4 text-lg font-bold text-ink">
               {editing === "new" ? "Tambah menu" : `Edit: ${editing.name}`}
             </h2>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
 
             <div className="flex items-center gap-4">
               <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-surface-line bg-surface-page">
                 {draft.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={draft.imageUrl} alt="" className="h-full w-full object-cover" />
+                  <img src={imageUrl(draft.imageUrl, "adminPreview")} alt="" className="h-full w-full object-cover" />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center text-2xl opacity-40">
                     🍽️
@@ -414,7 +443,9 @@ export function MenuItemsPanel({
                     </button>
                   )}
                 </div>
-                <p className="text-xs text-ink-secondary">JPG atau PNG, maksimal 2 MB.</p>
+                <p className="text-xs text-ink-secondary">
+                  JPG atau PNG. Kamu bisa mengatur posisi dan zoom; foto dipotong ke 4:3 sebelum diunggah.
+                </p>
               </div>
             </div>
 
@@ -475,11 +506,27 @@ export function MenuItemsPanel({
               Tersedia untuk dipesan
             </label>
 
-            {formError && (
-              <div className="text-danger-ink text-sm bg-danger/10 px-3 py-2 rounded">{formError}</div>
+            {editing !== "new" ? (
+              <CustomizationEditor
+                itemId={editing.id}
+                token={token}
+                groups={optionGroups}
+                onChange={setOptionGroups}
+              />
+            ) : (
+              <p className="rounded-lg border border-dashed border-surface-line p-3 text-xs text-ink-secondary">
+                Simpan menu ini dulu, lalu buka <b>Edit</b> untuk menambah pilihan kustomisasi
+                (rasa, level pedas, topping, ukuran).
+              </p>
             )}
 
-            <div className="flex gap-3 pt-2">
+            </div>
+
+            <div className="shrink-0 border-t border-surface-line px-6 py-4 space-y-3">
+              {formError && (
+                <div className="text-danger-ink text-sm bg-danger/10 px-3 py-2 rounded">{formError}</div>
+              )}
+              <div className="flex gap-3">
               <button
                 type="button"
                 onClick={() => setEditing(null)}
@@ -495,9 +542,18 @@ export function MenuItemsPanel({
               >
                 Simpan
               </button>
+              </div>
             </div>
           </div>
         </div>
+      )}
+
+      {cropFile && (
+        <ImageCropEditor
+          file={cropFile}
+          onCancel={() => setCropFile(null)}
+          onConfirm={(cropped) => void uploadCropped(cropped)}
+        />
       )}
     </div>
   );

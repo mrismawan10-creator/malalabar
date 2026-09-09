@@ -1,9 +1,13 @@
-import type { PrismaClient } from "@malalabar/db";
+import type { Prisma, PrismaClient } from "@malalabar/db";
 import type {
   AdminCategory,
+  AdminCustomizationGroup,
+  AdminCustomizationOption,
+  AdminCustomizationOptionRow,
   AdminMenuItem,
   AdminMenuItemDetail,
   AdminMenuStatusFilter,
+  CustomizationType,
 } from "@malalabar/types";
 
 /**
@@ -43,6 +47,41 @@ export interface MenuAdminRepository {
   updateItem(id: string, data: Partial<ItemWrite>): Promise<AdminMenuItem>;
   softDeleteItem(id: string): Promise<void>;
   setAvailability(ids: string[], isAvailable: boolean): Promise<AdminMenuItem[]>;
+  /** Null when the option does not exist or its item is soft-deleted. */
+  setOptionAvailability(
+    optionId: string,
+    isAvailable: boolean,
+  ): Promise<AdminCustomizationOption | null>;
+
+  /** Group with its options; null if missing or its item is soft-deleted. */
+  findGroup(groupId: string): Promise<(AdminCustomizationGroup & { menuItemId: string }) | null>;
+  createGroup(
+    menuItemId: string,
+    data: {
+      name: string;
+      type: CustomizationType;
+      isRequired: boolean;
+      options: Array<{ name: string; surchargePrice: number }>;
+    },
+  ): Promise<AdminCustomizationGroup>;
+  updateGroup(
+    groupId: string,
+    data: Partial<{ name: string; type: CustomizationType; isRequired: boolean }>,
+  ): Promise<AdminCustomizationGroup>;
+  /** Cascades to its options. Past orders are unaffected: they hold snapshots. */
+  deleteGroup(groupId: string): Promise<void>;
+  findOption(
+    optionId: string,
+  ): Promise<{ id: string; groupId: string; menuItemId: string; isAvailable: boolean } | null>;
+  createOption(
+    groupId: string,
+    data: { name: string; surchargePrice: number },
+  ): Promise<AdminCustomizationOptionRow>;
+  updateOption(
+    optionId: string,
+    data: Partial<{ name: string; surchargePrice: number; isAvailable: boolean }>,
+  ): Promise<AdminCustomizationOptionRow>;
+  deleteOption(optionId: string): Promise<void>;
 
   listCategories(): Promise<AdminCategory[]>;
   findCategory(id: string): Promise<AdminCategory | null>;
@@ -118,6 +157,24 @@ function toItem(r: ItemRecord): AdminMenuItem {
     updatedAt: r.updatedAt.toISOString(),
   };
 }
+
+const optionSelect = {
+  id: true,
+  name: true,
+  surchargePrice: true,
+  isAvailable: true,
+} satisfies Prisma.CustomizationOptionSelect;
+
+const groupSelect = {
+  id: true,
+  name: true,
+  type: true,
+  isRequired: true,
+  options: {
+    orderBy: [{ sortOrder: "asc" as const }, { name: "asc" as const }],
+    select: optionSelect,
+  },
+} satisfies Prisma.CustomizationGroupSelect;
 
 const categorySelect = {
   id: true,
@@ -203,7 +260,7 @@ export function createPrismaMenuAdminRepository(
               isRequired: true,
               options: {
                 orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-                select: { id: true, name: true, surchargePrice: true },
+                select: { id: true, name: true, surchargePrice: true, isAvailable: true },
               },
             },
           },
@@ -242,6 +299,112 @@ export function createPrismaMenuAdminRepository(
         select: itemSelect,
       });
       return rows.map(toItem);
+    },
+
+    async setOptionAvailability(optionId, isAvailable) {
+      const exists = await prisma.customizationOption.findFirst({
+        where: { id: optionId, group: { menuItem: { isDeleted: false } } },
+        select: { id: true },
+      });
+      if (!exists) return null;
+      const row = await prisma.customizationOption.update({
+        where: { id: optionId },
+        data: { isAvailable },
+        select: {
+          id: true,
+          name: true,
+          isAvailable: true,
+          groupId: true,
+          group: { select: { menuItemId: true } },
+        },
+      });
+      return {
+        id: row.id,
+        name: row.name,
+        isAvailable: row.isAvailable,
+        groupId: row.groupId,
+        menuItemId: row.group.menuItemId,
+      };
+    },
+
+    async findGroup(groupId) {
+      return prisma.customizationGroup.findFirst({
+        where: { id: groupId, menuItem: { isDeleted: false } },
+        select: { ...groupSelect, menuItemId: true },
+      });
+    },
+
+    async createGroup(menuItemId, data) {
+      const last = await prisma.customizationGroup.findFirst({
+        where: { menuItemId },
+        orderBy: { sortOrder: "desc" },
+        select: { sortOrder: true },
+      });
+      return prisma.customizationGroup.create({
+        data: {
+          menuItemId,
+          name: data.name,
+          type: data.type,
+          isRequired: data.isRequired,
+          sortOrder: (last?.sortOrder ?? 0) + 10,
+          options: {
+            create: data.options.map((o, i) => ({
+              name: o.name,
+              surchargePrice: o.surchargePrice,
+              sortOrder: (i + 1) * 10,
+            })),
+          },
+        },
+        select: groupSelect,
+      });
+    },
+
+    async updateGroup(groupId, data) {
+      return prisma.customizationGroup.update({ where: { id: groupId }, data, select: groupSelect });
+    },
+
+    async deleteGroup(groupId) {
+      await prisma.customizationGroup.delete({ where: { id: groupId } });
+    },
+
+    async findOption(optionId) {
+      const row = await prisma.customizationOption.findFirst({
+        where: { id: optionId, group: { menuItem: { isDeleted: false } } },
+        select: {
+          id: true,
+          groupId: true,
+          isAvailable: true,
+          group: { select: { menuItemId: true } },
+        },
+      });
+      return row
+        ? { id: row.id, groupId: row.groupId, menuItemId: row.group.menuItemId, isAvailable: row.isAvailable }
+        : null;
+    },
+
+    async createOption(groupId, data) {
+      const last = await prisma.customizationOption.findFirst({
+        where: { groupId },
+        orderBy: { sortOrder: "desc" },
+        select: { sortOrder: true },
+      });
+      return prisma.customizationOption.create({
+        data: {
+          groupId,
+          name: data.name,
+          surchargePrice: data.surchargePrice,
+          sortOrder: (last?.sortOrder ?? 0) + 10,
+        },
+        select: optionSelect,
+      });
+    },
+
+    async updateOption(optionId, data) {
+      return prisma.customizationOption.update({ where: { id: optionId }, data, select: optionSelect });
+    },
+
+    async deleteOption(optionId) {
+      await prisma.customizationOption.delete({ where: { id: optionId } });
     },
 
     async listCategories() {

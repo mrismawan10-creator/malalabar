@@ -5,7 +5,7 @@ import { buildApp } from "../app.js";
 import { signCustomerSessionToken } from "../lib/tokens.js";
 import { createFakeTableRepository } from "./fake-table-repository.js";
 import { createFakeMenuRepository } from "./fake-menu-repository.js";
-import { createFakeOrderRepository } from "./fake-order-repository.js";
+import { createFakeOrderRepository, fakeOrderMenu } from "./fake-order-repository.js";
 import {
   createFakeSessionRepository,
   createFakeSettingsRepository,
@@ -220,6 +220,30 @@ describe("POST /sessions/:id/orders — validation", () => {
     expect(res.json<{ error: { code: string } }>().error.code).toBe(
       "REQUIRED_OPTION_MISSING",
     );
+  });
+
+  it("rejects a sold-out option with 422, like a sold-out item (failure path)", async () => {
+    await app.close();
+    const menu = fakeOrderMenu();
+    const egg = menu[0]!.customizationGroups[1]!.options.find((o) => o.id === "opt-egg")!;
+    egg.isAvailable = false;
+    await boot(createFakeOrderRepository({ menu }));
+
+    const res = await submit({
+      items: [
+        {
+          menuItemId: "item-nasgor",
+          quantity: 1,
+          selectedOptionIds: ["opt-mild", "opt-egg"],
+        },
+      ],
+    });
+
+    expect(res.statusCode).toBe(422);
+    expect(res.json<{ error: { code: string } }>().error.code).toBe(
+      "OPTION_UNAVAILABLE",
+    );
+    expect(orders.saved()).toHaveLength(0);
   });
 
   it("rejects two choices in a SINGLE_SELECT group (failure path)", async () => {

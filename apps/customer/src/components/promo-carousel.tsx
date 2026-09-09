@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { MenuPromoCard } from "@malalabar/types";
+import { imageUrl } from "@malalabar/ui";
 import { formatRupiah } from "@/lib/format";
 import { useOverflowScroll } from "@/lib/use-overflow-scroll";
 
@@ -101,7 +102,7 @@ export function PromoCarousel({
                   {promo.imageUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={promo.imageUrl}
+                      src={imageUrl(promo.imageUrl, "thumb")}
                       alt=""
                       className="h-full w-full object-cover"
                       loading="lazy"

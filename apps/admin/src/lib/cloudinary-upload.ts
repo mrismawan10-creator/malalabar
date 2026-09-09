@@ -18,14 +18,15 @@ export async function uploadMenuImage(file: File, token: string): Promise<string
     { method: "POST", json: {} },
   );
 
-  // Every signed param must be sent unchanged alongside the file.
+  // Every signed param must be sent unchanged alongside the file. The API
+  // hands us the exact map it signed, so this cannot drift from the server.
   const form = new FormData();
   form.append("file", file);
   form.append("api_key", upload.apiKey);
-  form.append("timestamp", String(upload.timestamp));
   form.append("signature", upload.signature);
-  form.append("folder", upload.folder);
-  form.append("allowed_formats", upload.allowedFormats);
+  for (const [key, value] of Object.entries(upload.signedParams)) {
+    form.append(key, value);
+  }
 
   const res = await fetch(upload.uploadUrl, { method: "POST", body: form });
   const body = (await res.json().catch(() => null)) as

@@ -92,8 +92,8 @@ export function fakeMenuData(): FakeMenuData {
           type: "SINGLE_SELECT",
           isRequired: true,
           options: [
-            { id: "opt-mild", name: "Tidak Pedas", surchargePrice: 0 },
-            { id: "opt-hot", name: "Pedas", surchargePrice: 0 },
+            { id: "opt-mild", name: "Tidak Pedas", surchargePrice: 0, isAvailable: true },
+            { id: "opt-hot", name: "Pedas", surchargePrice: 0, isAvailable: true },
           ],
         },
         {
@@ -102,8 +102,8 @@ export function fakeMenuData(): FakeMenuData {
           type: "MULTI_SELECT",
           isRequired: false,
           options: [
-            { id: "opt-egg", name: "Telur", surchargePrice: 5000 },
-            { id: "opt-sausage", name: "Sosis", surchargePrice: 7000 },
+            { id: "opt-egg", name: "Telur", surchargePrice: 5000, isAvailable: true },
+            { id: "opt-sausage", name: "Sosis", surchargePrice: 7000, isAvailable: true },
           ],
         },
       ],

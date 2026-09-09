@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { MenuItemDetail } from "@malalabar/types";
+import { imageUrl } from "@malalabar/ui";
 import { formatRupiah } from "@/lib/format";
 import type { CartItem } from "@/lib/use-cart";
 
@@ -96,6 +97,11 @@ export function ItemDetailModal({
   };
 
   const toggleOption = (optionId: string, groupType: string) => {
+    const option = item.customizationGroups
+      .flatMap((g) => g.options)
+      .find((o) => o.id === optionId);
+    if (option && !option.isAvailable) return;
+
     const next = new Set(selectedOptions);
     if (groupType === "SINGLE_SELECT") {
       // For single-select, clear others in this group first
@@ -148,10 +154,10 @@ export function ItemDetailModal({
           )}
 
           {item.imageUrl ? (
-            <div className="aspect-[16/9] w-full bg-surface-sunken">
+            <div className="aspect-[4/3] w-full bg-surface-sunken">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={item.imageUrl}
+                src={imageUrl(item.imageUrl, "detail")}
                 alt=""
                 className={`h-full w-full object-cover ${item.isAvailable ? "" : "opacity-50 grayscale"}`}
               />
@@ -200,6 +206,7 @@ export function ItemDetailModal({
                 <ul className="flex flex-col gap-2">
                   {group.options.map((option) => {
                     const isSelected = selectedOptions.has(option.id);
+                    const soldOut = !option.isAvailable;
                     const inputType = group.type === "SINGLE_SELECT" ? "radio" : "checkbox";
                     const inputId = `opt-${option.id}`;
 
@@ -207,10 +214,12 @@ export function ItemDetailModal({
                       <li key={option.id}>
                         <label
                           htmlFor={inputId}
-                          className={`flex cursor-pointer items-center gap-3 rounded-md border-2 px-3 py-2 transition-colors ${
-                            isSelected
-                              ? "border-accent bg-accent/10"
-                              : "border-surface-line bg-surface-page"
+                          className={`flex items-center gap-3 rounded-md border-2 px-3 py-2 transition-colors ${
+                            soldOut
+                              ? "cursor-not-allowed border-muted-border bg-soldout-card"
+                              : isSelected
+                                ? "cursor-pointer border-accent bg-accent/10"
+                                : "cursor-pointer border-surface-line bg-surface-page"
                           }`}
                         >
                           <input
@@ -218,11 +227,20 @@ export function ItemDetailModal({
                             type={inputType}
                             checked={isSelected}
                             onChange={() => toggleOption(option.id, group.type)}
-                            disabled={!item.isAvailable}
+                            disabled={!item.isAvailable || soldOut}
                             className="shrink-0"
                           />
-                          <span className="flex-1 text-base text-ink">{option.name}</span>
-                          {option.surchargePrice > 0 && (
+                          <span
+                            className={`flex-1 text-base ${soldOut ? "text-soldout-name line-through" : "text-ink"}`}
+                          >
+                            {option.name}
+                          </span>
+                          {soldOut && (
+                            <span className="shrink-0 rounded-sm border-2 border-ink-line bg-ink px-2 py-[2px] text-micro font-bold text-white">
+                              HABIS
+                            </span>
+                          )}
+                          {!soldOut && option.surchargePrice > 0 && (
                             <span className="shrink-0 text-base font-semibold text-ink-muted">
                               +{formatRupiah(option.surchargePrice)}
                             </span>

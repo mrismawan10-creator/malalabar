@@ -54,7 +54,7 @@ export interface MenuItemDetailRow {
     name: string;
     type: CustomizationType;
     isRequired: boolean;
-    options: Array<{ id: string; name: string; surchargePrice: number }>;
+    options: Array<{ id: string; name: string; surchargePrice: number; isAvailable: boolean }>;
   }>;
 }
 
@@ -86,7 +86,15 @@ export function createPrismaMenuRepository(
     async listItems() {
       const rows = await prisma.menuItem.findMany({
         where: { isDeleted: false },
-        orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+        // Category order is the owner's (PRD 4.5.2); within a category the
+        // available items come first and sold-out ones sink to the bottom.
+        orderBy: [
+          { category: { sortOrder: "asc" } },
+          { category: { name: "asc" } },
+          { isAvailable: "desc" },
+          { sortOrder: "asc" },
+          { name: "asc" },
+        ],
         select: {
           id: true,
           name: true,
@@ -150,7 +158,7 @@ export function createPrismaMenuRepository(
               isRequired: true,
               options: {
                 orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-                select: { id: true, name: true, surchargePrice: true },
+                select: { id: true, name: true, surchargePrice: true, isAvailable: true },
               },
             },
           },

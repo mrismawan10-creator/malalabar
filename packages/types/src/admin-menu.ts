@@ -22,14 +22,59 @@ export interface AdminMenuItem {
   updatedAt: string;
 }
 
+export interface AdminCustomizationOptionRow {
+  id: string;
+  name: string;
+  surchargePrice: number;
+  isAvailable: boolean;
+}
+
+export interface AdminCustomizationGroup {
+  id: string;
+  name: string;
+  type: CustomizationType;
+  /** A required group must keep at least one available option (else the item cannot be ordered). */
+  isRequired: boolean;
+  options: AdminCustomizationOptionRow[];
+}
+
 export interface AdminMenuItemDetail extends AdminMenuItem {
-  customizationGroups: Array<{
-    id: string;
-    name: string;
-    type: CustomizationType;
-    isRequired: boolean;
-    options: Array<{ id: string; name: string; surchargePrice: number }>;
-  }>;
+  customizationGroups: AdminCustomizationGroup[];
+}
+
+/** `POST /admin/menu/:id/customization-groups` */
+export interface CreateCustomizationGroupRequest {
+  name: string;
+  type: CustomizationType;
+  isRequired: boolean;
+  options?: Array<{ name: string; surchargePrice: number }>;
+}
+
+/** `PATCH /admin/customization-groups/:groupId` */
+export type UpdateCustomizationGroupRequest = Partial<
+  Pick<CreateCustomizationGroupRequest, "name" | "type" | "isRequired">
+>;
+
+/** `POST /admin/customization-groups/:groupId/options` */
+export interface CreateCustomizationOptionRequest {
+  name: string;
+  surchargePrice: number;
+}
+
+/** `PATCH /admin/customization-options/:id` */
+export interface UpdateCustomizationOptionRequest {
+  name?: string;
+  surchargePrice?: number;
+  isAvailable?: boolean;
+}
+
+/** `POST /admin/customization-options/:id/availability` */
+export interface AdminCustomizationOption {
+  id: string;
+  name: string;
+  isAvailable: boolean;
+  groupId: string;
+  menuItemId: string;
 }
 
 export type AdminMenuStatusFilter = "available" | "unavailable";
@@ -139,8 +184,12 @@ export interface UploadSignatureResponse {
   apiKey: string;
   timestamp: number;
   signature: string;
+  /** Exactly the params covered by `signature`; send every entry verbatim with the file. */
+  signedParams: Record<string, string>;
   folder: string;
   allowedFormats: string;
+  /** Incoming transformation Cloudinary applies as it stores the file. */
+  transformation: string;
   uploadUrl: string;
   maxBytes: number;
 }

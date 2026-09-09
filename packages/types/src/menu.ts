@@ -57,6 +57,8 @@ export interface CustomizationOptionDto {
   id: string;
   name: string;
   surchargePrice: number;
+  /** Sold-out options stay listed but cannot be chosen; the server rejects them too. */
+  isAvailable: boolean;
 }
 
 export interface CustomizationGroupDto {

@@ -88,4 +88,16 @@ export const adminMenuRoutes: FastifyPluginAsync<Options> = async (app, { menuAd
     const items = await menuAdmin.setAvailability([id], body.isAvailable, actorOf(request));
     return { item: items[0] };
   });
+
+  /** "Tambah Telur habis" — per-option availability (PRD 4.5.4). */
+  app.post(
+    "/customization-options/:id/availability",
+    { preHandler: guard },
+    async (request) => {
+      const { id } = idParams.parse(request.params);
+      const body = availabilityBody.parse(request.body);
+      const option = await menuAdmin.setOptionAvailability(id, body.isAvailable, actorOf(request));
+      return { option };
+    },
+  );
 };

@@ -21,7 +21,7 @@ export interface OrderMenuItemRow {
     name: string;
     type: CustomizationType;
     isRequired: boolean;
-    options: Array<{ id: string; name: string; surchargePrice: number }>;
+    options: Array<{ id: string; name: string; surchargePrice: number; isAvailable: boolean }>;
   }>;
 }
 
@@ -216,7 +216,7 @@ export function createPrismaOrderRepository(
               isRequired: true,
               options: {
                 orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-                select: { id: true, name: true, surchargePrice: true },
+                select: { id: true, name: true, surchargePrice: true, isAvailable: true },
               },
             },
           },

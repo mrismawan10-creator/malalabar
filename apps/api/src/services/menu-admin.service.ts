@@ -1,14 +1,21 @@
 import type { Prisma, PrismaClient } from "@malalabar/db";
 import type {
   AdminCategory,
+  AdminCustomizationGroup,
+  AdminCustomizationOption,
+  AdminCustomizationOptionRow,
   AdminMenuItem,
   AdminMenuItemDetail,
   AdminPromo,
   BulkAvailabilityRequest,
   CreateCategoryRequest,
+  CreateCustomizationGroupRequest,
+  CreateCustomizationOptionRequest,
   CreateMenuItemRequest,
   CreatePromoRequest,
   UpdateCategoryRequest,
+  UpdateCustomizationGroupRequest,
+  UpdateCustomizationOptionRequest,
   UpdateMenuItemRequest,
   UpdatePromoRequest,
 } from "@malalabar/types";
@@ -33,6 +40,34 @@ export interface MenuAdminService {
   updateItem(id: string, body: UpdateMenuItemRequest, actor: Actor): Promise<AdminMenuItem>;
   deleteItem(id: string, actor: Actor): Promise<void>;
   setAvailability(ids: string[], isAvailable: boolean, actor: Actor): Promise<AdminMenuItem[]>;
+  setOptionAvailability(
+    optionId: string,
+    isAvailable: boolean,
+    actor: Actor,
+  ): Promise<AdminCustomizationOption>;
+
+  createGroup(
+    menuItemId: string,
+    body: CreateCustomizationGroupRequest,
+    actor: Actor,
+  ): Promise<AdminCustomizationGroup>;
+  updateGroup(
+    groupId: string,
+    body: UpdateCustomizationGroupRequest,
+    actor: Actor,
+  ): Promise<AdminCustomizationGroup>;
+  deleteGroup(groupId: string, actor: Actor): Promise<void>;
+  createOption(
+    groupId: string,
+    body: CreateCustomizationOptionRequest,
+    actor: Actor,
+  ): Promise<AdminCustomizationOptionRow>;
+  updateOption(
+    optionId: string,
+    body: UpdateCustomizationOptionRequest,
+    actor: Actor,
+  ): Promise<AdminCustomizationOptionRow>;
+  deleteOption(optionId: string, actor: Actor): Promise<void>;
 
   listCategories(): Promise<AdminCategory[]>;
   createCategory(body: CreateCategoryRequest, actor: Actor): Promise<AdminCategory>;
@@ -118,6 +153,39 @@ export function createMenuAdminService(deps: {
     const promo = await repo.findPromo(id);
     if (!promo) throw new AppError("PROMO_NOT_FOUND", "Promo tidak ditemukan", 404);
     return promo;
+  }
+
+  async function requireGroup(groupId: string) {
+    const group = await repo.findGroup(groupId);
+    if (!group) {
+      throw new AppError("GROUP_NOT_FOUND", "Grup kustomisasi tidak ditemukan", 404);
+    }
+    return group;
+  }
+
+  async function requireOption(optionId: string) {
+    const option = await repo.findOption(optionId);
+    if (!option) throw new AppError("OPTION_NOT_FOUND", "Pilihan tidak ditemukan", 404);
+    return option;
+  }
+
+  /**
+   * A required group with nothing pickable makes its whole item unorderable
+   * (the order service answers REQUIRED_OPTION_MISSING), so the last
+   * available option of a required group can be neither disabled nor deleted.
+   */
+  async function assertNotLastAvailableOfRequired(optionId: string) {
+    const option = await requireOption(optionId);
+    const group = await requireGroup(option.groupId);
+    if (!group.isRequired) return;
+    const others = group.options.filter((o) => o.id !== optionId && o.isAvailable);
+    if (others.length === 0) {
+      throw new AppError(
+        "LAST_REQUIRED_OPTION",
+        "Grup wajib harus menyisakan minimal satu pilihan tersedia",
+        422,
+      );
+    }
   }
 
   function assertPromoPrice(promoPrice: number, basePrice: number) {
@@ -207,6 +275,115 @@ export function createMenuAdminService(deps: {
         items: items.map((i) => ({ menuItemId: i.id, isAvailable: i.isAvailable })),
       });
       return items;
+    },
+
+    async setOptionAvailability(optionId, isAvailable, actor) {
+      if (!isAvailable) await assertNotLastAvailableOfRequired(optionId);
+      const option = await repo.setOptionAvailability(optionId, isAvailable);
+      if (!option) {
+        throw new AppError("OPTION_NOT_FOUND", "Pilihan tidak ditemukan", 404);
+      }
+      await audit(actor, "SET_OPTION_AVAILABILITY", "CUSTOMIZATION_OPTION", optionId, {
+        name: option.name,
+        menuItemId: option.menuItemId,
+        isAvailable,
+      });
+      // No realtime event: customers fetch options fresh each time they open
+      // the item detail, so the change lands on the next tap.
+      return option;
+    },
+
+    async createGroup(menuItemId, body, actor) {
+      await requireItem(menuItemId);
+      const options = body.options ?? [];
+      if (body.isRequired && options.length === 0) {
+        throw new AppError(
+          "GROUP_NEEDS_OPTIONS",
+          "Grup wajib harus punya minimal satu pilihan",
+          422,
+        );
+      }
+      const group = await repo.createGroup(menuItemId, {
+        name: body.name,
+        type: body.type,
+        isRequired: body.isRequired,
+        options,
+      });
+      await audit(actor, "CREATE_CUSTOMIZATION_GROUP", "CUSTOMIZATION_GROUP", group.id, {
+        menuItemId,
+        name: group.name,
+        optionCount: options.length,
+      });
+      return group;
+    },
+
+    async updateGroup(groupId, body, actor) {
+      const before = await requireGroup(groupId);
+      if (body.isRequired === true && !before.options.some((o) => o.isAvailable)) {
+        throw new AppError(
+          "GROUP_NEEDS_OPTIONS",
+          "Grup wajib harus punya minimal satu pilihan tersedia",
+          422,
+        );
+      }
+      const group = await repo.updateGroup(groupId, {
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.type !== undefined ? { type: body.type } : {}),
+        ...(body.isRequired !== undefined ? { isRequired: body.isRequired } : {}),
+      });
+      await audit(actor, "UPDATE_CUSTOMIZATION_GROUP", "CUSTOMIZATION_GROUP", groupId, {
+        menuItemId: before.menuItemId,
+        changes: { ...body },
+      });
+      return group;
+    },
+
+    async deleteGroup(groupId, actor) {
+      const group = await requireGroup(groupId);
+      await repo.deleteGroup(groupId);
+      await audit(actor, "DELETE_CUSTOMIZATION_GROUP", "CUSTOMIZATION_GROUP", groupId, {
+        menuItemId: group.menuItemId,
+        name: group.name,
+      });
+    },
+
+    async createOption(groupId, body, actor) {
+      const group = await requireGroup(groupId);
+      const option = await repo.createOption(groupId, body);
+      await audit(actor, "CREATE_CUSTOMIZATION_OPTION", "CUSTOMIZATION_OPTION", option.id, {
+        groupId,
+        menuItemId: group.menuItemId,
+        name: option.name,
+        surchargePrice: option.surchargePrice,
+      });
+      return option;
+    },
+
+    async updateOption(optionId, body, actor) {
+      const before = await requireOption(optionId);
+      if (body.isAvailable === false && before.isAvailable) {
+        await assertNotLastAvailableOfRequired(optionId);
+      }
+      const option = await repo.updateOption(optionId, {
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.surchargePrice !== undefined ? { surchargePrice: body.surchargePrice } : {}),
+        ...(body.isAvailable !== undefined ? { isAvailable: body.isAvailable } : {}),
+      });
+      await audit(actor, "UPDATE_CUSTOMIZATION_OPTION", "CUSTOMIZATION_OPTION", optionId, {
+        menuItemId: before.menuItemId,
+        changes: { ...body },
+      });
+      return option;
+    },
+
+    async deleteOption(optionId, actor) {
+      const before = await requireOption(optionId);
+      if (before.isAvailable) await assertNotLastAvailableOfRequired(optionId);
+      await repo.deleteOption(optionId);
+      await audit(actor, "DELETE_CUSTOMIZATION_OPTION", "CUSTOMIZATION_OPTION", optionId, {
+        menuItemId: before.menuItemId,
+        groupId: before.groupId,
+      });
     },
 
     listCategories: () => repo.listCategories(),

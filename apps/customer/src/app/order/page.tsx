@@ -43,6 +43,9 @@ const QR_FAILURES: Record<string, string> = {
 
 type View = "menu" | "checkout" | "tracking";
 
+const soldOutLast = (items: MenuItemSummary[]) =>
+  [...items].sort((a, b) => Number(b.isAvailable) - Number(a.isAvailable));
+
 const codeOf = (err: unknown) =>
   err instanceof ApiClientError ? err.code : "UNKNOWN_ERROR";
 
@@ -501,16 +504,39 @@ function OrderScreen() {
           Belum ada menu di kategori ini.
         </p>
       ) : (
-        <ul className="grid grid-cols-2 gap-3 px-4 pt-4">
-          {visibleItems.map((item) => (
-            <li key={item.id} className="flex">
-              <MenuCard
-                item={item}
-                onOpen={(picked: MenuItemSummary) => setOpenItemId(picked.id)}
-              />
-            </li>
-          ))}
-        </ul>
+        // "Semua" walks the categories in the owner's order with a heading
+        // per section; a single category is just its grid. Sold-out items
+        // sink to the bottom of their section — re-sorted here too, so a live
+        // availability toggle moves the card without a reload (stable sort
+        // keeps the server's order otherwise).
+        (activeCategory === ALL_CATEGORY
+          ? menu.categories
+              .map((c) => ({
+                key: c.id,
+                title: `${c.icon ? `${c.icon} ` : ""}${c.name}`,
+                items: soldOutLast(visibleItems.filter((i) => i.categoryId === c.id)),
+              }))
+              .filter((s) => s.items.length > 0)
+          : [{ key: activeCategory, title: null, items: soldOutLast(visibleItems) }]
+        ).map((section) => (
+          <section key={section.key} aria-label={section.title ?? undefined}>
+            {section.title && (
+              <h2 className="px-4 pt-5 font-display text-xl tracking-wide text-ink">
+                {section.title.toUpperCase()}
+              </h2>
+            )}
+            <ul className="grid grid-cols-2 gap-3 px-4 pt-3">
+              {section.items.map((item) => (
+                <li key={item.id} className="flex">
+                  <MenuCard
+                    item={item}
+                    onOpen={(picked: MenuItemSummary) => setOpenItemId(picked.id)}
+                  />
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))
       )}
 
       {openItemId && (

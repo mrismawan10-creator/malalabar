@@ -14,6 +14,7 @@ import type { KdsService } from "../services/kds.service.js";
 import type { PaymentService } from "../services/payment.service.js";
 import type { MidtransWebhookService } from "../services/midtrans-webhook.service.js";
 import { adminCategoryRoutes } from "./admin/categories.js";
+import { adminCustomizationRoutes } from "./admin/customizations.js";
 import { adminMenuRoutes } from "./admin/menu.js";
 import { adminPromoRoutes } from "./admin/promos.js";
 import { adminTableRoutes } from "./admin/tables.js";
@@ -77,6 +78,10 @@ export const registerRoutes: FastifyPluginAsync<RouteOptions> = async (
   await app.register(adminMenuRoutes, { prefix: "/admin", menuAdmin: opts.menuAdminService });
   await app.register(adminCategoryRoutes, { prefix: "/admin", menuAdmin: opts.menuAdminService });
   await app.register(adminPromoRoutes, { prefix: "/admin", menuAdmin: opts.menuAdminService });
+  await app.register(adminCustomizationRoutes, {
+    prefix: "/admin",
+    menuAdmin: opts.menuAdminService,
+  });
   await app.register(adminUploadRoutes, { prefix: "/admin", uploadService: opts.uploadService });
   await app.register(webhookRoutes, {
     midtransWebhook: opts.midtransWebhook,

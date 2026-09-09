@@ -159,8 +159,8 @@ describe("GET /menu/items/:id", () => {
       isRequired: false,
     });
     expect(topping!.options).toEqual([
-      { id: "opt-egg", name: "Telur", surchargePrice: 5000 },
-      { id: "opt-sausage", name: "Sosis", surchargePrice: 7000 },
+      { id: "opt-egg", name: "Telur", surchargePrice: 5000, isAvailable: true },
+      { id: "opt-sausage", name: "Sosis", surchargePrice: 7000, isAvailable: true },
     ]);
   });
 

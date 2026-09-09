@@ -1,6 +1,7 @@
 "use client";
 
 import type { MenuItemSummary } from "@malalabar/types";
+import { imageUrl } from "@malalabar/ui";
 import { formatRupiah } from "@/lib/format";
 
 /**
@@ -38,7 +39,7 @@ export function MenuCard({
         {item.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={item.imageUrl}
+            src={imageUrl(item.imageUrl, "card")}
             alt=""
             className={`h-full w-full object-cover ${soldOut ? "opacity-50 grayscale" : ""}`}
             loading="lazy"

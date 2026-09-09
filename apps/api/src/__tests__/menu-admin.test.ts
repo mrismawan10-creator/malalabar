@@ -27,7 +27,18 @@ function fakeRepo() {
       customizationGroupCount: 0,
       promo: null,
       updatedAt: new Date().toISOString(),
-      customizationGroups: [],
+      customizationGroups: [
+        {
+          id: "grp-add",
+          name: "Tambahan",
+          type: "MULTI_SELECT",
+          isRequired: false,
+          options: [
+            { id: "opt-egg", name: "Tambah Telur", surchargePrice: 3000, isAvailable: true },
+            { id: "opt-chicken", name: "Tambah Ayam", surchargePrice: 8000, isAvailable: true },
+          ],
+        },
+      ],
     },
   ];
   // Stored like the table: no item fields. The real query joins the item's
@@ -40,6 +51,23 @@ function fakeRepo() {
     isActive: boolean;
   }> = [];
   let seq = 0;
+
+  const locateGroup = (groupId: string) => {
+    for (const item of items) {
+      const group = item.customizationGroups.find((g) => g.id === groupId);
+      if (group) return { item, group };
+    }
+    return null;
+  };
+  const locateOption = (optionId: string) => {
+    for (const item of items) {
+      for (const group of item.customizationGroups) {
+        const option = group.options.find((o) => o.id === optionId);
+        if (option) return { item, group, option };
+      }
+    }
+    return null;
+  };
 
   const view = (p: (typeof promos)[number]): PromoRow => {
     const item = items.find((i) => i.id === p.menuItemId)!;
@@ -87,6 +115,62 @@ function fakeRepo() {
       const hit = items.filter((i) => ids.includes(i.id));
       hit.forEach((i) => (i.isAvailable = isAvailable));
       return hit;
+    },
+    async setOptionAvailability(optionId, isAvailable) {
+      for (const item of items) {
+        for (const g of item.customizationGroups) {
+          const o = g.options.find((x) => x.id === optionId);
+          if (o) {
+            o.isAvailable = isAvailable;
+            return { id: o.id, name: o.name, isAvailable, groupId: g.id, menuItemId: item.id };
+          }
+        }
+      }
+      return null;
+    },
+    async findGroup(groupId) {
+      const hit = locateGroup(groupId);
+      return hit ? { ...hit.group, options: hit.group.options.map((o) => ({ ...o })), menuItemId: hit.item.id } : null;
+    },
+    async createGroup(menuItemId, data) {
+      const item = items.find((i) => i.id === menuItemId)!;
+      const group = {
+        id: `grp-${++seq}`,
+        name: data.name,
+        type: data.type,
+        isRequired: data.isRequired,
+        options: data.options.map((o) => ({ id: `opt-${++seq}`, ...o, isAvailable: true })),
+      };
+      item.customizationGroups.push(group);
+      return group;
+    },
+    async updateGroup(groupId, data) {
+      const { group } = locateGroup(groupId)!;
+      Object.assign(group, data);
+      return group;
+    },
+    async deleteGroup(groupId) {
+      const { item } = locateGroup(groupId)!;
+      item.customizationGroups.splice(item.customizationGroups.findIndex((g) => g.id === groupId), 1);
+    },
+    async findOption(optionId) {
+      const hit = locateOption(optionId);
+      return hit ? { id: hit.option.id, groupId: hit.group.id, menuItemId: hit.item.id, isAvailable: hit.option.isAvailable } : null;
+    },
+    async createOption(groupId, data) {
+      const { group } = locateGroup(groupId)!;
+      const option = { id: `opt-${++seq}`, ...data, isAvailable: true };
+      group.options.push(option);
+      return option;
+    },
+    async updateOption(optionId, data) {
+      const { option } = locateOption(optionId)!;
+      Object.assign(option, data);
+      return option;
+    },
+    async deleteOption(optionId) {
+      const { group } = locateOption(optionId)!;
+      group.options.splice(group.options.findIndex((o) => o.id === optionId), 1);
     },
     async listCategories() {
       return categories;
@@ -238,6 +322,120 @@ describe("MenuAdminService", () => {
           promo: expect.objectContaining({ discountPercent: discountPercent(40000, 28000) }),
         }),
       );
+    });
+  });
+
+  describe("customization options", () => {
+    it("marks a single option sold out and audits it (happy path)", async () => {
+      const option = await build().setOptionAvailability("opt-egg", false, ACTOR);
+
+      expect(option).toEqual({
+        id: "opt-egg",
+        name: "Tambah Telur",
+        isAvailable: false,
+        groupId: "grp-add",
+        menuItemId: "item-1",
+      });
+      const detail = await fake.repo.findItem("item-1");
+      expect(detail!.customizationGroups[0]!.options.map((o) => o.isAvailable)).toEqual([false, true]);
+      expect(audit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: "SET_OPTION_AVAILABILITY",
+            entityType: "CUSTOMIZATION_OPTION",
+            entityId: "opt-egg",
+          }),
+        }),
+      );
+      // Item-level availability is untouched and no item event fires.
+      expect(gateway.menuAvailabilityChanged).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 for an unknown option (failure path)", async () => {
+      await expect(build().setOptionAvailability("opt-nope", false, ACTOR)).rejects.toMatchObject({
+        code: "OPTION_NOT_FOUND",
+        statusCode: 404,
+      });
+      expect(audit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("customization groups & options (T5.4)", () => {
+    it("creates a group with its options in one call and audits it (happy path)", async () => {
+      const group = await build().createGroup(
+        "item-1",
+        {
+          name: "Level Kepedasan",
+          type: "SINGLE_SELECT",
+          isRequired: true,
+          options: [
+            { name: "Tidak Pedas", surchargePrice: 0 },
+            { name: "Pedas", surchargePrice: 0 },
+          ],
+        },
+        ACTOR,
+      );
+      expect(group).toMatchObject({ name: "Level Kepedasan", type: "SINGLE_SELECT", isRequired: true });
+      expect(group.options.map((o) => o.name)).toEqual(["Tidak Pedas", "Pedas"]);
+      expect(group.options.every((o) => o.isAvailable)).toBe(true);
+      expect(auditActions()).toContain("CREATE_CUSTOMIZATION_GROUP");
+      expect((await fake.repo.findItem("item-1"))!.customizationGroups).toHaveLength(2);
+    });
+
+    it("refuses a required group with no options — it would make the item unorderable (failure path)", async () => {
+      await expect(
+        build().createGroup("item-1", { name: "Ukuran", type: "SINGLE_SELECT", isRequired: true }, ACTOR),
+      ).rejects.toMatchObject({ code: "GROUP_NEEDS_OPTIONS", statusCode: 422 });
+
+      // Same rule when flipping an existing group to required while every option is sold out.
+      await build().setOptionAvailability("opt-egg", false, ACTOR);
+      await build().setOptionAvailability("opt-chicken", false, ACTOR);
+      await expect(build().updateGroup("grp-add", { isRequired: true }, ACTOR)).rejects.toMatchObject({
+        code: "GROUP_NEEDS_OPTIONS",
+      });
+    });
+
+    it("keeps at least one available option in a required group (failure path)", async () => {
+      const svc = build();
+      await svc.updateGroup("grp-add", { isRequired: true }, ACTOR);
+      await svc.setOptionAvailability("opt-chicken", false, ACTOR);
+
+      await expect(svc.setOptionAvailability("opt-egg", false, ACTOR)).rejects.toMatchObject({
+        code: "LAST_REQUIRED_OPTION",
+        statusCode: 422,
+      });
+      await expect(svc.deleteOption("opt-egg", ACTOR)).rejects.toMatchObject({
+        code: "LAST_REQUIRED_OPTION",
+      });
+      // Deleting an already sold-out option is fine — it was not holding the group up.
+      await expect(svc.deleteOption("opt-chicken", ACTOR)).resolves.toBeUndefined();
+    });
+
+    it("edits option name/surcharge, adds and removes options in an optional group", async () => {
+      const svc = build();
+      const added = await svc.createOption("grp-add", { name: "Tambah Keju", surchargePrice: 5000 }, ACTOR);
+      expect(added).toMatchObject({ name: "Tambah Keju", surchargePrice: 5000, isAvailable: true });
+
+      const edited = await svc.updateOption(added.id, { surchargePrice: 6000 }, ACTOR);
+      expect(edited.surchargePrice).toBe(6000);
+
+      await svc.deleteOption("opt-egg", ACTOR);
+      const names = (await fake.repo.findItem("item-1"))!.customizationGroups[0]!.options.map((o) => o.name);
+      expect(names).toEqual(["Tambah Ayam", "Tambah Keju"]);
+      expect(auditActions()).toEqual(
+        expect.arrayContaining(["CREATE_CUSTOMIZATION_OPTION", "UPDATE_CUSTOMIZATION_OPTION", "DELETE_CUSTOMIZATION_OPTION"]),
+      );
+    });
+
+    it("deletes a whole group and 404s on unknown ids", async () => {
+      const svc = build();
+      await svc.deleteGroup("grp-add", ACTOR);
+      expect((await fake.repo.findItem("item-1"))!.customizationGroups).toEqual([]);
+      expect(auditActions()).toContain("DELETE_CUSTOMIZATION_GROUP");
+
+      await expect(svc.updateGroup("grp-nope", { name: "x" }, ACTOR)).rejects.toMatchObject({ code: "GROUP_NOT_FOUND", statusCode: 404 });
+      await expect(svc.createOption("grp-nope", { name: "x", surchargePrice: 0 }, ACTOR)).rejects.toMatchObject({ code: "GROUP_NOT_FOUND" });
+      await expect(svc.updateOption("opt-nope", { name: "x" }, ACTOR)).rejects.toMatchObject({ code: "OPTION_NOT_FOUND", statusCode: 404 });
     });
   });
 

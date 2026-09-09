@@ -31,8 +31,8 @@ export function fakeOrderMenu(): OrderMenuItemRow[] {
           type: "SINGLE_SELECT",
           isRequired: true,
           options: [
-            { id: "opt-mild", name: "Tidak Pedas", surchargePrice: 0 },
-            { id: "opt-hot", name: "Pedas", surchargePrice: 0 },
+            { id: "opt-mild", name: "Tidak Pedas", surchargePrice: 0, isAvailable: true },
+            { id: "opt-hot", name: "Pedas", surchargePrice: 0, isAvailable: true },
           ],
         },
         {
@@ -41,8 +41,8 @@ export function fakeOrderMenu(): OrderMenuItemRow[] {
           type: "MULTI_SELECT",
           isRequired: false,
           options: [
-            { id: "opt-egg", name: "Tambah Telur", surchargePrice: 3000 },
-            { id: "opt-chicken", name: "Tambah Ayam", surchargePrice: 8000 },
+            { id: "opt-egg", name: "Tambah Telur", surchargePrice: 3000, isAvailable: true },
+            { id: "opt-chicken", name: "Tambah Ayam", surchargePrice: 8000, isAvailable: true },
           ],
         },
       ],

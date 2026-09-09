@@ -46,12 +46,29 @@ describe("Cloudinary upload service", () => {
       timestamp: 1700000000,
       folder: "malalabar/menu",
       allowedFormats: "jpg,png",
+      transformation: "c_limit,w_1600,h_1600,q_auto:good",
       uploadUrl: "https://api.cloudinary.com/v1_1/demo-cloud/image/upload",
       maxBytes: 2 * 1024 * 1024,
     });
+    // What the client must forward is exactly what was signed — no more, no less.
+    expect(bundle.signedParams).toEqual({
+      allowed_formats: "jpg,png",
+      folder: "malalabar/menu",
+      timestamp: "1700000000",
+      transformation: "c_limit,w_1600,h_1600,q_auto:good",
+    });
+    expect(cloudinarySignature(bundle.signedParams, "s3cr3t")).toBe(bundle.signature);
+
+    // The incoming transformation must be inside the signature, or Cloudinary
+    // would let a client drop it and store the full-size original.
     expect(bundle.signature).toBe(
       cloudinarySignature(
-        { allowed_formats: "jpg,png", folder: "malalabar/menu", timestamp: 1700000000 },
+        {
+          allowed_formats: "jpg,png",
+          folder: "malalabar/menu",
+          timestamp: 1700000000,
+          transformation: "c_limit,w_1600,h_1600,q_auto:good",
+        },
         "s3cr3t",
       ),
     );

@@ -14,6 +14,12 @@ import { AppError } from "../lib/errors.js";
 export const MENU_IMAGE_FOLDER = "malalabar/menu";
 export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const ALLOWED_FORMATS = "jpg,png";
+/**
+ * Applied by Cloudinary as the asset is stored: cap the longest edge and
+ * normalise quality, so a 12 MP phone photo is kept at a sensible size.
+ * Per-slot cropping happens at delivery time (packages/ui image-url).
+ */
+export const INCOMING_TRANSFORMATION = "c_limit,w_1600,h_1600,q_auto:good";
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png"]);
 
 export interface CloudinaryCredentials {
@@ -85,14 +91,25 @@ export function createUploadService(deps: {
     signMenuImageUpload() {
       const c = requireCreds();
       const timestamp = Math.floor(now() / 1000);
-      const params = { allowed_formats: ALLOWED_FORMATS, folder: MENU_IMAGE_FOLDER, timestamp };
+      const params = {
+        allowed_formats: ALLOWED_FORMATS,
+        folder: MENU_IMAGE_FOLDER,
+        timestamp,
+        transformation: INCOMING_TRANSFORMATION,
+      };
       return {
         cloudName: c.cloudName,
         apiKey: c.apiKey,
         timestamp,
         signature: cloudinarySignature(params, c.apiSecret),
+        // The client forwards this map verbatim, so adding a signed param here
+        // can never desync from what the browser sends.
+        signedParams: Object.fromEntries(
+          Object.entries(params).map(([k, v]) => [k, String(v)]),
+        ),
         folder: MENU_IMAGE_FOLDER,
         allowedFormats: ALLOWED_FORMATS,
+        transformation: INCOMING_TRANSFORMATION,
         uploadUrl: `https://api.cloudinary.com/v1_1/${c.cloudName}/image/upload`,
         maxBytes: MAX_IMAGE_BYTES,
       };

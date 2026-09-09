@@ -34,7 +34,7 @@ export function PendingOrdersList({
             </div>
             <div className="text-right">
               <div className="font-semibold text-lg">
-                {(order.estimatedTotal / 1000).toLocaleString("id-ID", {
+                {order.estimatedTotal.toLocaleString("id-ID", {
                   style: "currency",
                   currency: "IDR",
                   minimumFractionDigits: 0,

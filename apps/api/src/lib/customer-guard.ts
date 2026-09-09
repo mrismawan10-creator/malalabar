@@ -13,6 +13,10 @@ import { TokenError, verifyCustomerSessionToken } from "./tokens.js";
  *     id is never trusted,
  *  3. that the session is still OPEN (401 SESSION_CLOSED). A terminal session
  *     never reopens; the customer must rescan (State_Machine §2).
+ *
+ * `allowPaid` lets read-only routes (order tracking) keep working on a PAID
+ * session so the customer can watch their food arrive. Ordering and payment
+ * routes never pass it.
  */
 declare module "fastify" {
   interface FastifyRequest {
@@ -32,6 +36,7 @@ function deny(
 
 export function requireCustomerSession(
   sessions: SessionRepository,
+  options: { allowPaid?: boolean } = {},
 ): preHandlerHookHandler {
   return async function customerGuard(request: FastifyRequest, reply) {
     const header = request.headers.authorization;
@@ -67,7 +72,8 @@ export function requireCustomerSession(
       deny(reply, 401, "UNAUTHORIZED", "Session no longer exists");
       return;
     }
-    if (session.status !== "OPEN") {
+    const readableWhilePaid = options.allowPaid === true && session.status === "PAID";
+    if (session.status !== "OPEN" && !readableWhilePaid) {
       deny(
         reply,
         401,

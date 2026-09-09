@@ -168,6 +168,7 @@ enum StageSemantic {
   ACCEPTED
   IN_PROGRESS
   READY
+  SERVED
   CUSTOM
 }
 

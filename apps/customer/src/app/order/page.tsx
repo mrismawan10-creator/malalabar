@@ -3,9 +3,12 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type {
+  BillResponse,
   MenuItemDetail,
   MenuItemSummary,
   MenuResponse,
+  OrderRejectedPayload,
+  PaymentMethod,
 } from "@malalabar/types";
 import { ApiClientError, createApiClient } from "@malalabar/ui";
 import { config } from "@/config";
@@ -15,15 +18,15 @@ import { ItemDetailModal } from "@/components/item-detail-modal";
 import { MenuCard } from "@/components/menu-card";
 import { PromoCarousel } from "@/components/promo-carousel";
 import { BillCheckout } from "@/components/bill-checkout";
-import { PaymentSuccess } from "@/components/payment-success";
+import { OrderTracking } from "@/components/order-tracking";
 import { applyAccent } from "@/lib/theme";
 import { useCart } from "@/lib/use-cart";
 import { useMenuUpdates } from "@/lib/use-menu-updates";
 import { useSocket } from "@/lib/use-socket";
 import {
-  clearSession,
-  readSession,
-  writeSession,
+  clearState,
+  readState,
+  writeState,
   type StoredSession,
 } from "@/lib/session-storage";
 
@@ -38,12 +41,40 @@ const QR_FAILURES: Record<string, string> = {
   SETTINGS_MISSING: "Restoran belum siap menerima pesanan.",
 };
 
+type View = "menu" | "checkout" | "tracking";
+
+const codeOf = (err: unknown) =>
+  err instanceof ApiClientError ? err.code : "UNKNOWN_ERROR";
+
+/** A PAID session stays readable for tracking; anything else is gone. */
+async function stillReadable(s: StoredSession): Promise<boolean> {
+  try {
+    await api.getOrders(s.session.id, s.sessionToken);
+    return true;
+  } catch (err) {
+    // Offline: keep it — we cannot tell, and dropping it would lose tracking.
+    return codeOf(err) === "NETWORK_ERROR";
+  }
+}
+
+async function openSession(tableToken: string): Promise<StoredSession> {
+  const created = await api.createSession(tableToken);
+  return {
+    sessionToken: created.sessionToken,
+    session: created.session,
+    settings: created.settings,
+  };
+}
+
 function OrderScreen() {
   const searchParams = useSearchParams();
-  const tableToken = searchParams.get("t");
+  const urlToken = searchParams.get("t");
 
-  const [stored, setStored] = useState<StoredSession | null>(null);
+  const [tableToken, setTableToken] = useState<string | null>(null);
+  const [active, setActive] = useState<StoredSession | null>(null);
+  const [tracked, setTracked] = useState<StoredSession[]>([]);
   const [menu, setMenu] = useState<MenuResponse | null>(null);
+  const [view, setView] = useState<View>("menu");
   const [bootError, setBootError] = useState<string | null>(null);
   const [booting, setBooting] = useState(true);
 
@@ -57,89 +88,172 @@ function OrderScreen() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [orderSubmitted, setOrderSubmitted] = useState(false);
 
-  // Payment flow state
-  const [showCheckout, setShowCheckout] = useState(false);
-  const [paymentConfirmed, setPaymentConfirmed] = useState(false);
-  const [billData, setBillData] = useState<any>(null);
-  const [billLoading, setBillLoading] = useState(false);
+  const [billData, setBillData] = useState<BillResponse | null>(null);
+  const [pendingMethod, setPendingMethod] = useState<PaymentMethod | null>(null);
+  const [rejectedNotice, setRejectedNotice] = useState<string | null>(null);
+  const [orderMoreError, setOrderMoreError] = useState<string | null>(null);
 
-  // Socket.io for realtime updates
-  const socket = useSocket(stored?.sessionToken ?? null);
+  const socket = useSocket(active?.sessionToken ?? null);
+
+  // Everything needed to resume after a reload is persisted as it changes.
+  // Not during boot: an early write would clobber storage before it is read.
+  useEffect(() => {
+    if (booting) return;
+    writeState({ tableToken, active, tracked });
+  }, [booting, tableToken, active, tracked]);
 
   /**
-   * Scan → session → menu.
-   *
-   * A token in the URL always wins: rescanning is how a customer recovers from
-   * a stale session, so a fresh scan must not be shadowed by whatever is in
-   * sessionStorage.
+   * Resume before you scan. A reload (or a phone locking its screen) must land
+   * exactly where the customer was, so stored sessions win over the token in
+   * the URL — unless that token is a *different* one, which is a genuine new
+   * scan (another table, or a regenerated QR) and starts clean.
    */
   const bootstrap = useCallback(async () => {
     setBooting(true);
     setBootError(null);
+    setOrderMoreError(null);
+
+    const stored = readState();
+    const freshScan = urlToken !== null && urlToken !== stored.tableToken;
+    const token = urlToken ?? stored.tableToken;
+
+    let nextActive = freshScan ? null : stored.active;
+    let nextTracked = freshScan ? [] : stored.tracked;
+    let nextMenu: MenuResponse | null = null;
 
     try {
-      let active = tableToken ? null : readSession();
+      // Paid sessions: keep the ones the server still lets us read.
+      const keep = await Promise.all(nextTracked.map(stillReadable));
+      nextTracked = nextTracked.filter((_, i) => keep[i]);
 
-      if (!active) {
-        if (!tableToken) {
-          setBootError(
-            "Scan kode QR di meja Anda untuk mulai memesan.",
-          );
-          return;
+      // The ordering session: still OPEN, became PAID while we were away, or dead.
+      if (nextActive) {
+        try {
+          nextMenu = await api.getMenu(nextActive.sessionToken);
+        } catch (err) {
+          const code = codeOf(err);
+          if (code === "NETWORK_ERROR") throw err;
+          if (code === "SESSION_CLOSED" && (await stillReadable(nextActive))) {
+            nextTracked = [...nextTracked, nextActive];
+          }
+          nextActive = null;
         }
-        const created = await api.createSession(tableToken);
-        active = {
-          sessionToken: created.sessionToken,
-          session: created.session,
-          settings: created.settings,
-        };
-        writeSession(active);
       }
 
-      applyAccent(active.settings.primaryColor);
-      setStored(active);
-      setMenu(await api.getMenu(active.sessionToken));
-    } catch (err) {
-      const code = err instanceof ApiClientError ? err.code : "UNKNOWN_ERROR";
+      if (!nextActive && token) {
+        try {
+          nextActive = await openSession(token);
+          nextMenu = await api.getMenu(nextActive.sessionToken);
+        } catch (err) {
+          const code = codeOf(err);
+          if (code === "NETWORK_ERROR") throw err;
+          // With nothing to track this is a dead end; with tracking it just
+          // means "order more" is unavailable until they rescan.
+          if (nextTracked.length === 0) {
+            setBootError(
+              QR_FAILURES[code] ?? "Terjadi kendala. Coba lagi sebentar.",
+            );
+            return;
+          }
+          setOrderMoreError(
+            QR_FAILURES[code] ?? "Tidak bisa membuka pesanan baru saat ini.",
+          );
+        }
+      }
 
-      // A stored session that the server no longer honours is worse than none:
-      // drop it so the next scan starts clean.
-      if (code === "SESSION_CLOSED" || code === "UNAUTHORIZED") {
-        clearSession();
-        setBootError("Sesi Anda sudah berakhir. Scan ulang kode QR di meja.");
+      if (!nextActive && nextTracked.length === 0) {
+        setBootError("Scan kode QR di meja Anda untuk mulai memesan.");
         return;
       }
 
+      const theme = nextActive ?? nextTracked[0]!;
+      applyAccent(theme.settings.primaryColor);
+
+      // Waiting for the cashier to confirm cash/card? Land back on that screen.
+      let nextView: View = nextActive ? "menu" : "tracking";
+      if (nextActive) {
+        const bill = await api.getBill(nextActive.session.id, nextActive.sessionToken);
+        setBillData(bill);
+        if (bill.pendingPayment) {
+          setPendingMethod(bill.pendingPayment.method);
+          nextView = "checkout";
+        }
+      }
+
+      setTableToken(token);
+      setActive(nextActive);
+      setTracked(nextTracked);
+      setMenu(nextMenu);
+      setView(nextView);
+    } catch (err) {
+      // Offline: keep whatever storage had so a retry can resume.
+      setTableToken(token);
+      setActive(nextActive);
+      setTracked(nextTracked);
       setBootError(
-        QR_FAILURES[code] ??
-          (err instanceof ApiClientError && err.code === "NETWORK_ERROR"
-            ? "Tidak bisa terhubung. Periksa koneksi Anda lalu coba lagi."
-            : "Terjadi kendala. Coba lagi sebentar."),
+        codeOf(err) === "NETWORK_ERROR"
+          ? "Tidak bisa terhubung. Periksa koneksi Anda lalu coba lagi."
+          : "Terjadi kendala. Coba lagi sebentar.",
       );
     } finally {
       setBooting(false);
     }
-  }, [tableToken]);
+  }, [urlToken]);
 
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
 
-  // Listen for live menu updates (availability & promo toggles)
-  useMenuUpdates(stored?.sessionToken ?? null, setMenu, menu);
+  useMenuUpdates(active?.sessionToken ?? null, setMenu, menu);
 
-  // Item detail is fetched on demand — the grid payload deliberately omits
-  // customization groups (API_Contract §3).
+  const refreshBill = useCallback(async () => {
+    if (!active) return null;
+    const bill = await api.getBill(active.session.id, active.sessionToken);
+    setBillData(bill);
+    return bill;
+  }, [active]);
+
+  // Payment settled the active session: it moves to tracking. Handled here,
+  // not only in the checkout screen, so it is caught from any view.
+  const onPaid = useCallback(() => {
+    setActive((current) => {
+      if (!current) return current;
+      setTracked((t) =>
+        t.some((s) => s.session.id === current.session.id) ? t : [...t, current],
+      );
+      return null;
+    });
+    setMenu(null);
+    setBillData(null);
+    setPendingMethod(null);
+    cart.clearCart();
+    setView("tracking");
+  }, [cart]);
+
   useEffect(() => {
-    if (!openItemId || !stored) return;
+    if (!socket || !active) return;
+    const onRejected = (payload: OrderRejectedPayload) => {
+      setRejectedNotice(
+        `Pesanan #${payload.batchNumber} ditolak kasir: ${payload.reason}`,
+      );
+      void refreshBill().catch(() => {});
+    };
+    socket.on("order:rejected", onRejected);
+    socket.on("session:closed", onPaid);
+    return () => {
+      socket.off("order:rejected", onRejected);
+      socket.off("session:closed", onPaid);
+    };
+  }, [socket, active, refreshBill, onPaid]);
 
+  useEffect(() => {
+    if (!openItemId || !active) return;
     let cancelled = false;
     setDetail(null);
     setDetailError(null);
     setDetailLoading(true);
-
     api
-      .getMenuItem(openItemId, stored.sessionToken)
+      .getMenuItem(openItemId, active.sessionToken)
       .then((result) => {
         if (!cancelled) setDetail(result);
       })
@@ -149,11 +263,10 @@ function OrderScreen() {
       .finally(() => {
         if (!cancelled) setDetailLoading(false);
       });
-
     return () => {
       cancelled = true;
     };
-  }, [openItemId, stored]);
+  }, [openItemId, active]);
 
   const visibleItems = useMemo(() => {
     if (!menu) return [];
@@ -161,6 +274,49 @@ function OrderScreen() {
       ? menu.items
       : menu.items.filter((i) => i.categoryId === activeCategory);
   }, [menu, activeCategory]);
+
+  const handleOrderSubmitted = async () => {
+    setOrderSubmitted(true);
+    cart.clearCart();
+    try {
+      await refreshBill();
+      setView("checkout");
+    } catch (err) {
+      console.error("Failed to fetch bill:", err);
+    }
+    setTimeout(() => setOrderSubmitted(false), 1000);
+  };
+
+  const orderMore = async () => {
+    setOrderMoreError(null);
+    if (!tableToken) {
+      setOrderMoreError("Scan ulang kode QR di meja untuk memesan lagi.");
+      return;
+    }
+    try {
+      const s = await openSession(tableToken);
+      setActive(s);
+      setMenu(await api.getMenu(s.sessionToken));
+      setBillData(null);
+      setPendingMethod(null);
+      setView("menu");
+    } catch (err) {
+      setOrderMoreError(
+        QR_FAILURES[codeOf(err)] ?? "Tidak bisa membuka pesanan baru saat ini.",
+      );
+    }
+  };
+
+  const finishTracking = (servedSessionIds: string[]) => {
+    const remaining = tracked.filter((s) => !servedSessionIds.includes(s.session.id));
+    setTracked(remaining);
+    if (!active && remaining.length === 0) {
+      clearState();
+      window.location.href = "/";
+      return;
+    }
+    setView(active ? "menu" : "tracking");
+  };
 
   if (booting) {
     return (
@@ -170,7 +326,7 @@ function OrderScreen() {
     );
   }
 
-  if (bootError || !stored || !menu) {
+  if (bootError) {
     return (
       <main className="flex min-h-dvh items-center justify-center p-6">
         <div className="w-full max-w-xs rounded-2xl border-3 border-ink-line bg-surface-raised p-6 text-center shadow-hard-md">
@@ -188,57 +344,87 @@ function OrderScreen() {
     );
   }
 
-  const handleOrderSubmitted = async () => {
-    if (!stored) return;
+  const tableNumber = (active ?? tracked[0])?.session.tableNumber ?? "";
 
-    setOrderSubmitted(true);
-    cart.clearCart();
+  const rejectedBanner = rejectedNotice && (
+    <div
+      role="alert"
+      className="mx-4 mt-3 flex items-start justify-between gap-3 rounded-lg border-2 border-danger bg-danger/10 p-3 text-sm text-danger-ink"
+    >
+      <span>{rejectedNotice}</span>
+      <button
+        type="button"
+        onClick={() => setRejectedNotice(null)}
+        aria-label="Tutup"
+        className="shrink-0 font-bold"
+      >
+        ×
+      </button>
+    </div>
+  );
 
-    // Fetch bill to show checkout
-    setBillLoading(true);
-    try {
-      const bill = await api.getBill(stored.session.id, stored.sessionToken);
-      setBillData(bill);
-      setShowCheckout(true);
-    } catch (err) {
-      console.error("Failed to fetch bill:", err);
-    } finally {
-      setBillLoading(false);
-    }
-
-    setTimeout(() => setOrderSubmitted(false), 1000);
-  };
-
-  // Show payment success screen
-  if (paymentConfirmed) {
-    return <PaymentSuccess />;
-  }
-
-  // Show checkout screen
-  if (showCheckout && billData) {
+  if (view === "tracking" || (!active && tracked.length > 0)) {
     return (
-      <BillCheckout
-        sessionId={stored!.session.id}
-        sessionToken={stored!.sessionToken}
-        session={stored!}
-        totalAmount={billData.totalAmount}
-        subtotal={billData.subtotal}
-        taxAmount={billData.taxAmount}
-        serviceAmount={billData.serviceAmount}
-        items={billData.lines}
-        onPaymentConfirmed={() => setPaymentConfirmed(true)}
+      <OrderTracking
+        sessions={[...tracked, ...(active ? [active] : [])]}
+        paidSessionIds={tracked.map((s) => s.session.id)}
+        activeSocket={socket}
+        tableNumber={tableNumber}
         apiClient={api}
-        socket={socket}
+        onOrderMore={active ? undefined : orderMore}
+        onBackToMenu={active ? () => setView("menu") : undefined}
+        orderMoreError={orderMoreError}
+        onFinish={finishTracking}
       />
     );
   }
+
+  if (!active || !menu) {
+    // Unreachable in practice: covered by bootError above. Keeps TS honest.
+    return null;
+  }
+
+  if (view === "checkout" && billData) {
+    return (
+      <>
+        {rejectedBanner}
+        {!pendingMethod && (
+          <div className="mx-auto w-full max-w-md px-4 pt-4">
+            <button
+              type="button"
+              onClick={() => setView("menu")}
+              className="text-sm font-semibold text-ink underline"
+            >
+              ← Tambah pesanan lain
+            </button>
+          </div>
+        )}
+        <BillCheckout
+          sessionId={active.session.id}
+          sessionToken={active.sessionToken}
+          session={active}
+          totalAmount={billData.totalAmount}
+          subtotal={billData.subtotal}
+          taxAmount={billData.taxAmount}
+          serviceAmount={billData.serviceAmount}
+          items={billData.lines}
+          initialPendingMethod={pendingMethod}
+          onPaymentConfirmed={onPaid}
+          apiClient={api}
+          socket={socket}
+        />
+      </>
+    );
+  }
+
+  const hasBill = (billData?.lines.length ?? 0) > 0;
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-[428px] flex-col pb-8">
       <header className="flex items-center justify-between gap-3 px-4 pt-5">
         <div className="min-w-0">
           <h1 className="truncate font-display text-2xl tracking-wide text-ink">
-            {stored.settings.restaurantName.toUpperCase()}
+            {active.settings.restaurantName.toUpperCase()}
           </h1>
           <p className="font-script text-lg text-ink-muted">
             Scan · Pesan · Nikmati
@@ -253,11 +439,9 @@ function OrderScreen() {
               aria-label={`Keranjang (${cart.itemCount} item)`}
             >
               🛒
-              {cart.itemCount > 0 && (
-                <span className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-xs font-bold text-white">
-                  {cart.itemCount}
-                </span>
-              )}
+              <span className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-xs font-bold text-white">
+                {cart.itemCount}
+              </span>
             </button>
           )}
           <div className="shrink-0 rounded-lg border-[2.5px] border-ink-line bg-surface-raised px-3 py-2 text-center shadow-hard">
@@ -265,15 +449,40 @@ function OrderScreen() {
               MEJA
             </span>
             <span className="block font-display text-2xl leading-none text-ink">
-              {stored.session.tableNumber}
+              {active.session.tableNumber}
             </span>
           </div>
         </div>
       </header>
 
+      {(hasBill || tracked.length > 0) && (
+        <div className="mx-4 mt-3 flex gap-2">
+          {hasBill && (
+            <button
+              type="button"
+              onClick={() => setView("checkout")}
+              className="flex-1 rounded-lg border-[2.5px] border-ink-line bg-surface-raised px-3 py-2 text-sm font-semibold text-ink shadow-hard-sm"
+            >
+              Lihat tagihan
+            </button>
+          )}
+          {(tracked.length > 0 || hasBill) && (
+            <button
+              type="button"
+              onClick={() => setView("tracking")}
+              className="flex-1 rounded-lg border-[2.5px] border-ink-line bg-surface-raised px-3 py-2 text-sm font-semibold text-ink shadow-hard-sm"
+            >
+              Status pesanan
+            </button>
+          )}
+        </div>
+      )}
+
+      {rejectedBanner}
+
       {orderSubmitted && (
         <div className="mx-4 mt-3 rounded-lg border-2 border-success bg-success/10 p-3 text-center text-sm text-success-ink">
-          ✓ Pesanan berhasil dikirim! Tracking di menu utama.
+          ✓ Pesanan berhasil dikirim!
         </div>
       )}
 
@@ -317,12 +526,13 @@ function OrderScreen() {
         />
       )}
 
-      {cart.isReady && stored && (
+      {cart.isReady && (
         <CartDrawer
           isOpen={isCartOpen}
           items={cart.items}
           totalPrice={cart.totalPrice}
-          sessionId={stored.session.id}
+          sessionId={active.session.id}
+          sessionToken={active.sessionToken}
           onClose={() => setIsCartOpen(false)}
           onRemoveItem={cart.removeItem}
           onUpdateQuantity={cart.updateQuantity}

@@ -210,6 +210,36 @@ describe("GET /sessions/:id/bill", () => {
     expect(bill.enabledPaymentMethods).toEqual(["CASH", "CARD"]);
   });
 
+  it("surfaces a CASH/CARD payment awaiting the cashier so a reload can resume (happy path)", async () => {
+    await submit([TEMPE]);
+    orders.setSessionPayment({
+      id: "pay-1",
+      method: "CASH",
+      status: "PENDING",
+      totalAmount: 13800,
+    });
+
+    const bill = (await getBill()).json<BillResponse>();
+    expect(bill.pendingPayment).toEqual({
+      id: "pay-1",
+      method: "CASH",
+      totalAmount: 13800,
+    });
+  });
+
+  it("does not report ONLINE or already-settled payments as pending (failure path)", async () => {
+    await submit([TEMPE]);
+
+    orders.setSessionPayment({ id: "pay-2", method: "ONLINE", status: "PENDING", totalAmount: 1 });
+    expect((await getBill()).json<BillResponse>().pendingPayment).toBeNull();
+
+    orders.setSessionPayment({ id: "pay-3", method: "CASH", status: "PAID", totalAmount: 1 });
+    expect((await getBill()).json<BillResponse>().pendingPayment).toBeNull();
+
+    orders.setSessionPayment(null);
+    expect((await getBill()).json<BillResponse>().pendingPayment).toBeNull();
+  });
+
   it("is zero and payable-free on an empty session", async () => {
     const bill = (await getBill()).json<BillResponse>();
     expect(bill).toMatchObject({

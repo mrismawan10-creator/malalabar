@@ -231,10 +231,10 @@ function LoginForm({ onLogin }: { onLogin: (token: string) => void }) {
     setError("");
 
     try {
-      const res = await fetch(`${config.apiBaseUrl}/api/v1/auth/kds/login`, {
+      const res = await fetch(`${config.apiBaseUrl}/api/v1/auth/kitchen/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deviceId, deviceToken: token }),
+        body: JSON.stringify({ deviceId, token }),
       });
 
       if (!res.ok) {

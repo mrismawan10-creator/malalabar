@@ -38,6 +38,8 @@ export const orderRoutes: FastifyPluginAsync<Options> = async (
   { orderService, sessions, tables },
 ) => {
   const guard = requireCustomerSession(sessions);
+  // Tracking stays readable after payment until the food is served.
+  const trackingGuard = requireCustomerSession(sessions, { allowPaid: true });
 
   app.post(
     "/sessions/:sessionId/orders",
@@ -78,7 +80,7 @@ export const orderRoutes: FastifyPluginAsync<Options> = async (
 
   app.get(
     "/sessions/:sessionId/orders",
-    { preHandler: guard },
+    { preHandler: trackingGuard },
     async (request) => {
       const { sessionId } = paramsSchema.parse(request.params);
       return orderService.list(request.customerSession?.sessionId ?? sessionId);

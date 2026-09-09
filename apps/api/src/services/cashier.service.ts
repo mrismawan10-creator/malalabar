@@ -5,6 +5,7 @@ import type {
   PendingOrdersResponse,
   PaymentConfirmationResponse,
   RejectOrderResponse,
+  ServeOrderResponse,
 } from "@malalabar/types";
 import { AppError } from "../lib/errors.js";
 import type { OrderRepository } from "../repositories/order.repository.js";
@@ -26,6 +27,11 @@ export interface CashierService {
     ipAddress?: string,
   ): Promise<RejectOrderResponse>;
   getActiveTables(): Promise<ActiveTablesResponse>;
+  serveOrder(
+    orderId: string,
+    staffId: string,
+    ipAddress?: string,
+  ): Promise<ServeOrderResponse>;
   confirmPayment(
     paymentId: string,
     staffId: string,
@@ -38,7 +44,7 @@ export function createCashierService(deps: {
   prisma: PrismaClient;
   gateway: RealtimeGateway;
 }): CashierService {
-  return {
+  const service: CashierService = {
     async getPendingOrders() {
       const orders = await deps.orderRepository.findPendingOrders();
       return { orders };
@@ -196,6 +202,69 @@ export function createCashierService(deps: {
       return { tables };
     },
 
+    async serveOrder(orderId, staffId, ipAddress) {
+      const order = await deps.prisma.order.findUnique({
+        where: { id: orderId },
+        select: {
+          currentStage: { select: { semanticKey: true } },
+          sessionId: true,
+          batchNumber: true,
+          session: { select: { table: { select: { number: true } } } },
+        },
+      });
+
+      if (!order) {
+        throw new AppError("ORDER_NOT_FOUND", "Order tidak ditemukan", 404);
+      }
+
+      if (order.currentStage.semanticKey !== "READY") {
+        throw new AppError(
+          "ORDER_NOT_READY",
+          "Order belum siap disajikan",
+          409,
+        );
+      }
+
+      const servedStage = await deps.orderRepository.findActiveStageBySemantic("SERVED");
+      if (!servedStage) {
+        throw new AppError("STAGE_NOT_FOUND", "Stage SERVED tidak ditemukan", 500);
+      }
+
+      const result = await deps.orderRepository.serveOrder(
+        orderId,
+        staffId,
+        servedStage.id,
+      );
+
+      await deps.prisma.auditLog.create({
+        data: {
+          actorType: "STAFF",
+          actorId: staffId,
+          action: "SERVE_ORDER",
+          entityType: "ORDER",
+          entityId: orderId,
+          metadata: { batchNumber: order.batchNumber },
+          ipAddress,
+        },
+      });
+
+      deps.gateway.orderStatusChanged({
+        orderId,
+        sessionId: order.sessionId,
+        tableNumber: order.session.table.number,
+        batchNumber: order.batchNumber,
+        stage: result.currentStage,
+        updatedAt: new Date().toISOString(),
+      });
+
+      return {
+        order: {
+          id: result.id,
+          currentStage: result.currentStage,
+        },
+      };
+    },
+
     async confirmPayment(paymentId, staffId, ipAddress) {
       // Fetch payment and session
       const payment = await deps.prisma.payment.findUnique({
@@ -248,6 +317,21 @@ export function createCashierService(deps: {
         },
       });
 
+      // Pay-first flow: settling the bill is the cashier's go-ahead for the
+      // kitchen, so batches still awaiting approval are approved now by the
+      // same cashier (each one audited and emitted like a manual approve).
+      const awaiting = await deps.prisma.order.findMany({
+        where: {
+          sessionId: payment.sessionId,
+          rejected: false,
+          currentStage: { semanticKey: "AWAITING_CONFIRMATION" },
+        },
+        select: { id: true },
+      });
+      for (const o of awaiting) {
+        await service.approveOrder(o.id, staffId, ipAddress);
+      }
+
       // Close session
       await deps.prisma.tableSession.update({
         where: { id: payment.sessionId },
@@ -296,4 +380,6 @@ export function createCashierService(deps: {
       };
     },
   };
+
+  return service;
 }

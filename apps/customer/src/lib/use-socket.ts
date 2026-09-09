@@ -12,7 +12,7 @@ export function useSocket(sessionToken: string | null): Socket | null {
       return;
     }
 
-    const newSocket = io(config.apiBaseUrl, {
+    const newSocket = io(config.wsUrl, {
       auth: { token: sessionToken },
       reconnection: true,
       reconnectionDelay: 1000,

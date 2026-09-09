@@ -12,6 +12,7 @@ export function CartDrawer({
   items,
   totalPrice,
   sessionId,
+  sessionToken,
   onClose,
   onRemoveItem,
   onUpdateQuantity,
@@ -21,6 +22,7 @@ export function CartDrawer({
   items: CartItem[];
   totalPrice: number;
   sessionId: string;
+  sessionToken: string;
   onClose: () => void;
   onRemoveItem: (index: number) => void;
   onUpdateQuantity: (index: number, quantity: number) => void;
@@ -29,7 +31,6 @@ export function CartDrawer({
   const closeRef = useRef<HTMLButtonElement>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [session, setSession] = useState<{ sessionId: string; token: string } | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -48,20 +49,7 @@ export function CartDrawer({
     };
   }, [isOpen, onClose]);
 
-  // Load session from sessionStorage
-  useEffect(() => {
-    const stored = sessionStorage.getItem("session");
-    if (stored) {
-      try {
-        setSession(JSON.parse(stored));
-      } catch {
-        // ignore
-      }
-    }
-  }, []);
-
   const handleSubmitOrder = async () => {
-    if (!session) return;
     setIsSubmitting(true);
     setSubmitError(null);
 
@@ -74,7 +62,7 @@ export function CartDrawer({
         note: item.note ?? undefined,
       }));
 
-      await client.submitOrder(sessionId, { items: orderItems }, session.token);
+      await client.submitOrder(sessionId, { items: orderItems }, sessionToken);
 
       onOrderSubmitted();
       onClose();

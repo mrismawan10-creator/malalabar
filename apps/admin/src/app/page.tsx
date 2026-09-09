@@ -3,7 +3,7 @@ import { config } from "@/config";
 
 async function getHealth() {
   try {
-    const api = createApiClient(config.apiBaseUrl);
+    const api = createApiClient(`${config.apiBaseUrl}/api/v1`);
     return await api.health({ cache: "no-store" });
   } catch {
     return null;

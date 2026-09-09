@@ -90,6 +90,15 @@ export function CashierInterface() {
         }
       });
 
+      // Payment lifecycle changes what the Active Tables card offers
+      socket.on("payment:confirmed", () => {
+        fetchActiveTables();
+        fetchPendingOrders();
+      });
+      socket.on("session:closed", () => {
+        fetchActiveTables();
+      });
+
       // Order ready: show notification
       socket.on("order:ready", (payload: any) => {
         setReadyNotifications((prev) => new Set([...prev, payload.orderId]));

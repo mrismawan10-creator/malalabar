@@ -93,4 +93,10 @@ export interface BillResponse {
   serviceAmount: number;
   totalAmount: number;
   enabledPaymentMethods: PaymentMethod[];
+  /**
+   * A CASH/CARD payment the customer already initiated and the cashier has
+   * not yet confirmed — lets a reloaded page land back on "waiting for the
+   * cashier" instead of offering to pay again.
+   */
+  pendingPayment: { id: string; method: "CASH" | "CARD"; totalAmount: number } | null;
 }

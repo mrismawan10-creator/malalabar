@@ -1,6 +1,6 @@
 import { PrismaClient, StageSemantic } from "@prisma/client";
-import argon2 from "argon2";
-import { randomBytes, createHash } from "node:crypto";
+import { hash } from "bcryptjs";
+import { randomBytes } from "node:crypto";
 
 const prisma = new PrismaClient();
 
@@ -14,10 +14,6 @@ function generateToken(): string {
 // `pnpm --filter api qr:reissue` to replace the placeholder tokens below with
 // properly signed ones. Kitchen device tokens are unaffected — those are hashed,
 // not signed.
-
-function hashToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
 
 async function main() {
   console.log("Seeding database...\n");
@@ -68,6 +64,12 @@ async function main() {
       description: "Pesanan siap diambil atau diantar",
       sortOrder: 30,
     },
+    {
+      semanticKey: StageSemantic.SERVED,
+      label: "Pesanan Disajikan",
+      description: "Pesanan sudah diantar ke meja",
+      sortOrder: 40,
+    },
   ] as const;
 
   for (const stage of stageDefs) {
@@ -78,7 +80,7 @@ async function main() {
       await prisma.orderStatusStage.create({ data: stage });
     }
   }
-  console.log("✓ OrderStatusStages (4 anchored)");
+  console.log("✓ OrderStatusStages (5 anchored)");
 
   // ── 3. Superadmin staff user ───────────────────────────────────────────────
   const adminEmail =
@@ -86,9 +88,7 @@ async function main() {
   const adminPassword =
     process.env["SEED_SUPERADMIN_PASSWORD"] ?? "admin123";
 
-  const passwordHash = await argon2.hash(adminPassword, {
-    type: argon2.argon2id,
-  });
+  const passwordHash = await hash(adminPassword, 10);
 
   await prisma.staffUser.upsert({
     where: { email: adminEmail },
@@ -113,7 +113,7 @@ async function main() {
     await prisma.kitchenDevice.create({
       data: {
         label: "Dapur Utama",
-        tokenHash: hashToken(deviceToken),
+        tokenHash: await hash(deviceToken, 10),
         isActive: true,
       },
     });

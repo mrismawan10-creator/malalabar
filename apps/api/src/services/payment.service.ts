@@ -166,8 +166,8 @@ export function createPaymentService(deps: {
       if (method === "CASH" || method === "CARD") {
         const instruction =
           method === "CASH"
-            ? `Silakan bayar ke kasir, total: Rp ${(totalAmount / 1000).toLocaleString("id-ID")}`
-            : `Silakan proses pembayaran kartu, total: Rp ${(totalAmount / 1000).toLocaleString("id-ID")}`;
+            ? `Silakan bayar ke kasir, total: Rp ${totalAmount.toLocaleString("id-ID")}`
+            : `Silakan proses pembayaran kartu, total: Rp ${totalAmount.toLocaleString("id-ID")}`;
 
         return {
           payment: paymentInfo,

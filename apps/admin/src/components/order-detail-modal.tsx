@@ -16,6 +16,7 @@ export function OrderDetailModal({ orderId, onClose, staffToken }: OrderDetailMo
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+  const [showRejectForm, setShowRejectForm] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [error, setError] = useState("");
 
@@ -155,7 +156,7 @@ export function OrderDetailModal({ orderId, onClose, staffToken }: OrderDetailMo
                         {item.quantity}x {item.nameSnapshot}
                       </div>
                       <div className="font-semibold text-ink">
-                        {(item.lineTotal / 1000).toLocaleString("id-ID", {
+                        {item.lineTotal.toLocaleString("id-ID", {
                           style: "currency",
                           currency: "IDR",
                           minimumFractionDigits: 0,
@@ -184,7 +185,7 @@ export function OrderDetailModal({ orderId, onClose, staffToken }: OrderDetailMo
               <div className="mt-4 pt-4 border-t border-surface-line flex justify-between text-lg font-bold text-ink">
                 <span>Total</span>
                 <span>
-                  {(order.estimatedTotal / 1000).toLocaleString("id-ID", {
+                  {order.estimatedTotal.toLocaleString("id-ID", {
                     style: "currency",
                     currency: "IDR",
                     minimumFractionDigits: 0,
@@ -194,7 +195,7 @@ export function OrderDetailModal({ orderId, onClose, staffToken }: OrderDetailMo
             </div>
 
             {/* Reject reason (if rejecting) */}
-            {rejecting && (
+            {showRejectForm && (
               <div>
                 <label className="block text-sm font-medium text-ink mb-2">
                   Reason for rejection
@@ -225,10 +226,10 @@ export function OrderDetailModal({ orderId, onClose, staffToken }: OrderDetailMo
                 Cancel
               </button>
 
-              {!rejecting ? (
+              {!showRejectForm ? (
                 <>
                   <button
-                    onClick={() => setRejecting(true)}
+                    onClick={() => setShowRejectForm(true)}
                     className="flex-1 px-4 py-2 bg-danger/10 hover:bg-danger/20 rounded-lg text-danger-ink font-medium"
                   >
                     Reject
@@ -244,7 +245,7 @@ export function OrderDetailModal({ orderId, onClose, staffToken }: OrderDetailMo
               ) : (
                 <>
                   <button
-                    onClick={() => setRejecting(false)}
+                    onClick={() => setShowRejectForm(false)}
                     className="flex-1 px-4 py-2 bg-surface-hover hover:bg-surface-hover-active rounded-lg text-ink font-medium"
                   >
                     Back

@@ -226,9 +226,10 @@ export function createOrderService(deps: {
     },
 
     async bill(sessionId) {
-      const [rows, settings] = await Promise.all([
+      const [rows, settings, payment] = await Promise.all([
         repo.listBySession(sessionId),
         deps.settings.get(),
+        repo.findSessionPayment(sessionId),
       ]);
       if (!settings) {
         throw new AppError(
@@ -279,6 +280,11 @@ export function createOrderService(deps: {
         serviceAmount,
         totalAmount: subtotal + taxAmount + serviceAmount,
         enabledPaymentMethods,
+        // ONLINE settles via webhook; only CASH/CARD wait on the cashier.
+        pendingPayment:
+          payment && payment.status === "PENDING" && payment.method !== "ONLINE"
+            ? { id: payment.id, method: payment.method, totalAmount: payment.totalAmount }
+            : null,
       };
     },
   };

@@ -15,6 +15,7 @@ export type StageSemantic =
   | "ACCEPTED"
   | "IN_PROGRESS"
   | "READY"
+  | "SERVED"
   | "CUSTOM";
 
 export type PaymentMethod = "CASH" | "CARD" | "ONLINE";

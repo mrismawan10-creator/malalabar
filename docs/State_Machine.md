@@ -14,13 +14,13 @@ State transitions are where ambiguity turns into bugs. Every legal transition, i
 
 ### 1.1 Stages
 
-Four anchored semantics always exist. Superadmin may insert CUSTOM informational stages **only between IN_PROGRESS and READY** (per our scope decision). Stages are rows in `OrderStatusStage`, ordered by `sortOrder`.
+Five anchored semantics always exist. Superadmin may insert CUSTOM informational stages **only between IN_PROGRESS and READY** (per our scope decision). Stages are rows in `OrderStatusStage`, ordered by `sortOrder`.
 
 ```
-AWAITING_CONFIRMATION → ACCEPTED → IN_PROGRESS → [CUSTOM…] → READY
-        (customer)       (cashier)   (kitchen)   (kitchen)  (kitchen)
-                                                                │
-   reject (cashier) ──▶ REJECTED (terminal)                    ▼
+AWAITING_CONFIRMATION → ACCEPTED → IN_PROGRESS → [CUSTOM…] → READY → SERVED
+        (customer)       (cashier)   (kitchen)   (kitchen)  (kitchen)  (cashier)
+                                                                          │
+   reject (cashier) ──▶ REJECTED (terminal)                              ▼
    cancel (superadmin, from any non-terminal) ──▶ CANCELLED (terminal)   ends order's journey
 ```
 
@@ -30,13 +30,15 @@ AWAITING_CONFIRMATION → ACCEPTED → IN_PROGRESS → [CUSTOM…] → READY
 |---|---|---|---|---|
 | (none) | AWAITING_CONFIRMATION | `POST /sessions/:id/orders` | Customer | Session OPEN; ≥1 item; all required SINGLE_SELECT groups chosen; no sold-out item |
 | AWAITING_CONFIRMATION | ACCEPTED | `POST /cashier/orders/:id/approve` | Cashier | Order in AWAITING_CONFIRMATION; not rejected |
+| AWAITING_CONFIRMATION | ACCEPTED | `POST /cashier/payments/:id/confirm` (side effect) | Cashier | Pay-first: confirming CASH/CARD approves every awaiting, non-rejected batch in that session; each is audited and emitted as a normal approve |
 | AWAITING_CONFIRMATION | REJECTED | `POST /cashier/orders/:id/reject` | Cashier | Non-empty reason |
 | ACCEPTED | IN_PROGRESS | `POST /kds/orders/:id/advance` | Kitchen | Current = ACCEPTED |
 | IN_PROGRESS | next active stage | `POST /kds/orders/:id/advance` | Kitchen | Next active stage by sortOrder exists and ≤ READY |
 | CUSTOM (any) | next active stage | `POST /kds/orders/:id/advance` | Kitchen | Same as above |
+| READY | SERVED | `POST /cashier/orders/:id/serve` | Cashier | Current = READY |
 | any non-terminal | CANCELLED | `POST /superadmin/orders/:id/cancel` | Superadmin | Reason required; written to audit log |
 
-REJECTED and CANCELLED are terminal. READY is the kitchen-terminal (no further kitchen action; the order is now part of the payable bill).
+REJECTED and CANCELLED are terminal. READY is the kitchen-terminal (no further kitchen action; the order is now part of the payable bill). SERVED is the order-terminal: the cashier sets it when the food reaches the table. Because payment may settle the session before food arrives, the customer's tracking screen stays readable on a PAID session (`GET /sessions/:id/orders` only) until every order is SERVED; ordering and payment stay locked.
 
 ### 1.3 The `advance` resolution algorithm (kitchen)
 

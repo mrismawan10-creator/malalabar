@@ -14,7 +14,7 @@ export function useMenuUpdates(
     let socket: Socket | null = null;
 
     try {
-      socket = io(config.apiBaseUrl, {
+      socket = io(config.wsUrl, {
         path: "/socket.io",
         auth: { token: sessionToken },
         transports: ["websocket"],

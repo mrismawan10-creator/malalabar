@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PaymentInitiationResponse, PaymentMethod } from "@malalabar/types";
 import { ApiClientError } from "@malalabar/ui";
 import type { Socket } from "socket.io-client";
+import { formatRupiah } from "@/lib/format";
 
 interface PaymentModalProps {
   sessionId: string;
@@ -11,6 +12,8 @@ interface PaymentModalProps {
   totalAmount: number;
   enabledMethods: PaymentMethod[];
   onPaymentConfirmed: () => void;
+  /** CASH/CARD initiated — the cashier must now confirm it. */
+  onPending?: (method: PaymentMethod) => void;
   onClose: () => void;
   apiClient: any;
   socket: Socket | null;
@@ -22,6 +25,7 @@ export function PaymentModal({
   totalAmount,
   enabledMethods,
   onPaymentConfirmed,
+  onPending,
   onClose,
   apiClient,
   socket,
@@ -61,6 +65,10 @@ export function PaymentModal({
         sessionToken,
       );
       setPaymentResponse(response);
+
+      if (selectedMethod !== "ONLINE") {
+        onPending?.(selectedMethod);
+      }
 
       // For ONLINE payments, show Snap UI
       if (
@@ -187,7 +195,7 @@ export function PaymentModal({
         <div className="mb-6 p-4 bg-gray-50 rounded-lg">
           <p className="text-sm text-gray-600 mb-1">Total Tagihan:</p>
           <p className="text-2xl font-bold text-gray-900">
-            Rp {(totalAmount / 1000).toLocaleString("id-ID")}
+            {formatRupiah(totalAmount)}
           </p>
         </div>
 

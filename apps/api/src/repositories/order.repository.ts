@@ -118,6 +118,9 @@ export interface ActiveTableRow {
   orderCount: number;
   readyCount: number;
   unpaidTotal: number;
+  paid: boolean;
+  readyOrders: Array<{ id: string; batchNumber: number }>;
+  pendingPayment: { id: string; method: "CASH" | "CARD"; totalAmount: number } | null;
 }
 
 export interface KdsOrderRow {
@@ -168,8 +171,18 @@ export interface OrderRepository {
     orderId: string,
     reason: string,
   ): Promise<{ id: string; rejected: boolean; rejectReason: string | null }>;
-  /** Active tables with unpaid totals */
+  /** OPEN sessions, plus PAID sessions that still have unserved orders */
   findActiveTables(): Promise<ActiveTableRow[]>;
+  /** The session's single payment row, if any (Payment.sessionId is unique) */
+  findSessionPayment(
+    sessionId: string,
+  ): Promise<{ id: string; method: "CASH" | "CARD" | "ONLINE"; status: string; totalAmount: number } | null>;
+  /** Mark a READY order as SERVED (cashier action, State_Machine §1) */
+  serveOrder(
+    orderId: string,
+    staffId: string,
+    servedStageId: string,
+  ): Promise<{ id: string; currentStage: StageRow }>;
   /** KDS orders: approved/in-progress, not yet READY, FIFO by acceptedAt */
   findKdsOrders(): Promise<KdsOrderRow[]>;
   /** Advance order to next active stage by sortOrder (State_Machine §1.3) */
@@ -447,15 +460,35 @@ export function createPrismaOrderRepository(
     },
 
     async findActiveTables() {
-      const openSessions = await prisma.tableSession.findMany({
-        where: { status: "OPEN" },
+      const sessions = await prisma.tableSession.findMany({
+        where: {
+          OR: [
+            { status: "OPEN" },
+            {
+              status: "PAID",
+              orders: {
+                some: {
+                  rejected: false,
+                  currentStage: { semanticKey: { not: "SERVED" } },
+                },
+              },
+            },
+          ],
+        },
+        orderBy: { openedAt: "asc" },
         select: {
           id: true,
+          status: true,
           table: { select: { number: true } },
+          payment: {
+            select: { id: true, status: true, method: true, totalAmount: true },
+          },
           orders: {
             where: { rejected: false },
+            orderBy: { batchNumber: "asc" },
             select: {
               id: true,
+              batchNumber: true,
               currentStage: { select: { semanticKey: true } },
               items: { select: { lineTotal: true } },
             },
@@ -463,22 +496,74 @@ export function createPrismaOrderRepository(
         },
       });
 
-      return openSessions.map((session) => {
-        const readyCount = session.orders.filter(
-          (o) => o.currentStage.semanticKey === "READY",
-        ).length;
-        const unpaidTotal = session.orders.reduce(
-          (sum, order) => sum + order.items.reduce((s, item) => s + item.lineTotal, 0),
-          0,
-        );
+      return sessions.map((session) => {
+        const paid = session.status === "PAID";
+        const readyOrders = session.orders
+          .filter((o) => o.currentStage.semanticKey === "READY")
+          .map((o) => ({ id: o.id, batchNumber: o.batchNumber }));
+        const unpaidTotal = paid
+          ? 0
+          : session.orders.reduce(
+              (sum, order) =>
+                sum + order.items.reduce((s, item) => s + item.lineTotal, 0),
+              0,
+            );
+
+        // ONLINE settles via webhook, so only CASH/CARD wait on the cashier.
+        const p = session.payment;
+        const pendingPayment =
+          p && p.status === "PENDING" && (p.method === "CASH" || p.method === "CARD")
+            ? { id: p.id, method: p.method, totalAmount: p.totalAmount }
+            : null;
 
         return {
           sessionId: session.id,
           tableNumber: session.table.number,
           orderCount: session.orders.length,
-          readyCount,
+          readyCount: readyOrders.length,
           unpaidTotal,
+          paid,
+          readyOrders,
+          pendingPayment,
         };
+      });
+    },
+
+    async findSessionPayment(sessionId) {
+      return prisma.payment.findUnique({
+        where: { sessionId },
+        select: { id: true, method: true, status: true, totalAmount: true },
+      });
+    },
+
+    async serveOrder(orderId, staffId, servedStageId) {
+      return prisma.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          select: { currentStage: { select: { semanticKey: true } } },
+        });
+
+        if (!order) throw new Error("ORDER_NOT_FOUND");
+        if (order.currentStage.semanticKey !== "READY") {
+          throw new Error("ORDER_NOT_READY");
+        }
+
+        const updated = await tx.order.update({
+          where: { id: orderId },
+          data: { currentStageId: servedStageId },
+          select: {
+            id: true,
+            currentStage: {
+              select: { id: true, label: true, semanticKey: true, sortOrder: true },
+            },
+          },
+        });
+
+        await tx.orderStatusHistory.create({
+          data: { orderId, stageId: servedStageId, actorType: "STAFF", actorId: staffId },
+        });
+
+        return updated;
       });
     },
 

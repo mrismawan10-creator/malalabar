@@ -45,15 +45,17 @@ export function createKdsService(deps: {
           kitchenDeviceId,
         );
 
-        // Write audit log
+        // actorId is a FK to StaffUser; a kitchen device is not one, so the
+        // device identity goes in metadata instead.
         await deps.prisma.auditLog.create({
           data: {
             actorType: "KDS",
-            actorId: kitchenDeviceId,
+            actorId: null,
             action: "ADVANCE_ORDER",
             entityType: "ORDER",
             entityId: orderId,
             metadata: {
+              kitchenDeviceId,
               batchNumber: orderBefore.batchNumber,
               toStage: result.currentStage.semanticKey,
             },

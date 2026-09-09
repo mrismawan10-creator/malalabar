@@ -1,9 +1,11 @@
 import type {
+  BillResponse,
   CreateSessionResponse,
   MenuItemDetail,
   MenuResponse,
   CreateOrderResponse,
   CreateOrderItemRequest,
+  OrderListResponse,
   PaymentInitiationRequest,
   PaymentInitiationResponse,
   PaymentMethod,
@@ -96,6 +98,12 @@ export function createApiClient(baseUrl: string) {
         token,
       }),
 
+    /** Tracking screen — still readable after payment until everything is served. */
+    getOrders: (sessionId: string, token: string) =>
+      request<OrderListResponse>(`/sessions/${encodeURIComponent(sessionId)}/orders`, {
+        token,
+      }),
+
     initiatePayment: (sessionId: string, method: PaymentMethod, token: string) =>
       request<PaymentInitiationResponse>(
         `/sessions/${encodeURIComponent(sessionId)}/payment`,
@@ -107,7 +115,7 @@ export function createApiClient(baseUrl: string) {
       ),
 
     getBill: (sessionId: string, token: string) =>
-      request<any>(`/sessions/${encodeURIComponent(sessionId)}/bill`, { token }),
+      request<BillResponse>(`/sessions/${encodeURIComponent(sessionId)}/bill`, { token }),
   };
 }
 

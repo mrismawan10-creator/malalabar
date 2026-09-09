@@ -187,7 +187,7 @@ A batch is all-or-nothing: one bad line rejects the whole submission and writes 
 phones sharing a session (SDD_Core §5.1) always get distinct, gapless numbers.
 
 ### `GET /sessions/:sessionId/orders`
-All order batches in the session with current status, for the tracking screen.
+All order batches in the session with current status, for the tracking screen. Unlike every other customer route, this one also accepts a **PAID** session, so the customer can keep watching their food arrive after settling the bill; it still rejects TIMEOUT/FORCED closes with 401 `SESSION_CLOSED`.
 ```
 res:  { orders: [ { id, batchNumber, currentStage: { label, semanticKey, sortOrder },
                     rejected, rejectReason, items: [...snapshots...], createdAt } ] }
@@ -199,9 +199,11 @@ Computed bill across all non-rejected orders.
 res:  {
         lines: [ { nameSnapshot, quantity, lineTotal, customizations: [...] } ],
         subtotal, taxAmount, serviceAmount, totalAmount,
-        enabledPaymentMethods: ["CASH","CARD","ONLINE"]
+        enabledPaymentMethods: ["CASH","CARD","ONLINE"],
+        pendingPayment: { id, method: "CASH"|"CARD", totalAmount } | null
       }
 ```
+`pendingPayment` is set while a CASH/CARD payment awaits cashier confirmation, so a reloaded customer page can resume "waiting for the cashier" instead of offering to pay again.
 `subtotal` is the sum of **stored** `lineTotal` values, never recomputed against the live
 menu (CLAUDE.md hard rule 3). Tax and service are `floor(subtotal * percent / 100)` and are
 omitted (0) when disabled in settings (Data_Model §3.6).
@@ -264,13 +266,22 @@ res:  { order: { id, rejected: true, rejectReason } }
 ```
 
 ### `GET /cashier/active-tables`
-Tables with an open session and their unpaid totals.
+Tables with an OPEN session, plus PAID sessions that still have unserved orders (so the cashier can mark food as served after payment). `unpaidTotal` is 0 once paid.
 ```
-res:  { tables: [ { sessionId, tableNumber, orderCount, readyCount, unpaidTotal } ] }
+res:  { tables: [ { sessionId, tableNumber, orderCount, readyCount, unpaidTotal, paid,
+                    readyOrders: [ { id, batchNumber } ],
+                    pendingPayment: { id, method: "CASH"|"CARD", totalAmount } | null } ] }
 ```
 
+### `POST /cashier/orders/:id/serve`
+READY → SERVED. The order-terminal transition, made by the cashier when the food reaches the table. Writes an audit row and emits `order:status` to the session, cashier and KDS rooms.
+```
+res:  { order: { id, currentStage: { id, label, semanticKey: "SERVED", sortOrder } } }
+```
+404 if the order does not exist. 409 if it is not currently READY (including already SERVED).
+
 ### `POST /cashier/payments/:id/confirm`
-Manual confirmation for CASH/CARD. On success: Payment→PAID, session→PAID, table freed.
+Manual confirmation for CASH/CARD. On success: every batch in the session still AWAITING_CONFIRMATION is approved by this cashier (pay-first flow — audited and emitted per batch), then Payment→PAID, session→PAID, table freed. The pending payment is surfaced to the cashier via `active-tables.pendingPayment`.
 ```
 req (CASH):  { cashReceived: number }      // server computes change
 req (CARD):  { }                           // POS terminal already approved externally

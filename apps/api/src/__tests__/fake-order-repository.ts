@@ -95,6 +95,10 @@ export function createFakeOrderRepository(options: {
   sessionTouched(): string[];
   /** Runs before each persist — used to simulate a batch-number race. */
   onBeforePersist?: (input: PersistOrderInput) => void;
+  /** Test hook: plant the session's payment row, as payment initiation would. */
+  setSessionPayment(
+    payment: { id: string; method: "CASH" | "CARD" | "ONLINE"; status: string; totalAmount: number } | null,
+  ): void;
 } {
   const menu = options.menu ?? fakeOrderMenu();
   const stage = options.stage === undefined ? AWAITING : options.stage;
@@ -108,6 +112,12 @@ export function createFakeOrderRepository(options: {
   const touched: string[] = [];
   const batchesBySession = new Map<string, number[]>();
   const persisted: Array<SessionOrderRow & { sessionId: string }> = [];
+  let sessionPayment: {
+    id: string;
+    method: "CASH" | "CARD" | "ONLINE";
+    status: string;
+    totalAmount: number;
+  } | null = null;
 
   const repo = {
     saved: () => [...saved],
@@ -263,7 +273,9 @@ export function createFakeOrderRepository(options: {
 
       return Array.from(tableMap.entries()).map(([sessionId, orders]) => {
         const active = orders.filter((o) => !o.rejected);
-        const ready = active.filter((o) => o.currentStage.semanticKey === "READY").length;
+        const readyOrders = active
+          .filter((o) => o.currentStage.semanticKey === "READY")
+          .map((o) => ({ id: o.id, batchNumber: o.batchNumber }));
         const total = active.reduce(
           (sum, o) => sum + o.items.reduce((s, i) => s + i.lineTotal, 0),
           0,
@@ -272,10 +284,38 @@ export function createFakeOrderRepository(options: {
           sessionId,
           tableNumber: "1",
           orderCount: active.length,
-          readyCount: ready,
+          readyCount: readyOrders.length,
           unpaidTotal: total,
+          paid: false,
+          readyOrders,
+          pendingPayment: null,
         };
       });
+    },
+
+    setSessionPayment(payment: typeof sessionPayment) {
+      sessionPayment = payment;
+    },
+
+    async findSessionPayment(_sessionId: string) {
+      return sessionPayment;
+    },
+
+    async serveOrder(orderId: string, _staffId: string, servedStageId: string) {
+      const order = persisted.find((o) => o.id === orderId);
+      if (!order) throw new Error("ORDER_NOT_FOUND");
+      if (order.currentStage.semanticKey !== "READY") {
+        throw new Error("ORDER_NOT_READY");
+      }
+      const servedStage: StageRow = {
+        id: servedStageId,
+        label: "Disajikan",
+        semanticKey: "SERVED",
+        sortOrder: 5,
+      };
+      order.currentStage = servedStage;
+      history.push({ orderId, stageId: servedStageId, actorType: "STAFF" });
+      return { id: orderId, currentStage: servedStage };
     },
 
     async findKdsOrders() {

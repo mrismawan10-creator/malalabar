@@ -19,6 +19,9 @@ describe("CashierService - confirmPayment", () => {
         findUnique: vi.fn(),
         update: vi.fn(),
       } as any,
+      order: {
+        findMany: vi.fn().mockResolvedValue([]),
+      } as any,
       tableSession: {
         update: vi.fn(),
       } as any,

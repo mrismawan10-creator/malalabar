@@ -28,6 +28,20 @@ export default async function HomePage() {
         >
           API: {health ? `✓ ${health.status}` : "✗ unreachable"}
         </div>
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          <a
+            href="/cashier"
+            className="rounded-lg bg-primary px-4 py-3 text-center font-ui font-semibold text-white hover:bg-primary-hover"
+          >
+            Kasir
+          </a>
+          <a
+            href="/menu"
+            className="rounded-lg bg-primary px-4 py-3 text-center font-ui font-semibold text-white hover:bg-primary-hover"
+          >
+            Menu
+          </a>
+        </div>
       </div>
     </main>
   );

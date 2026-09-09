@@ -61,6 +61,7 @@ Naming: `domain:event`. All payloads are typed in `packages/types`. Every event 
 Notes:
 - `order:status` is the general-purpose stepper update the customer screen listens to; it fires on **every** transition including movement through CUSTOM stages, so the customer sees "Plating" etc. automatically.
 - `order:approved` carries the full card so the KDS can render without a refetch. `order:ready` to cashier is a lightweight notification (cashier refetches the active-table summary if needed).
+- Menu emits are wired from the admin routes (`/admin/menu*`, `/admin/promos*`, API_Contract §6): availability single/bulk/delete → one `menu:availability`; promo create/edit/toggle/delete and a base-price change under an active promo → `menu:promo`.
 - The customer socket is admitted on the JWT alone, so a PAID session keeps receiving `order:status` after `session:closed`. That is deliberate: the tracking stepper runs until every order reaches SERVED (`POST /cashier/orders/:id/serve`), which is the last `order:status` a session ever gets.
 
 ### 3.2 Menu availability & promo

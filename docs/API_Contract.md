@@ -330,6 +330,8 @@ POST   /admin/menu/availability/bulk              { ids: string[], isAvailable }
 ```
 Image upload: client uploads to Cloudinary (signed), sends back the resulting `imageUrl`. Max 2MB, JPG/PNG enforced client + server.
 
+Realtime: availability changes (single, bulk, and the implicit one on DELETE) emit **one** `menu:availability`; a `basePrice` change on an item with an active promo re-emits `menu:promo` because `discountPercent` is derived. Create/edit of other fields is not pushed — customers pick it up on their next menu load. Every write is audited under the acting staff (hard rule 9). Customization groups are read back on `GET /admin/menu/:id` but edited via the dedicated endpoints below (not yet implemented).
+
 ### Categories
 ```
 GET    /admin/categories                           list with item counts
@@ -347,7 +349,7 @@ PATCH  /admin/promos/:id                            { promoPrice?, label? }
 POST   /admin/promos/:id/toggle                     { isActive }  → one-click, syncs to homepage
 DELETE /admin/promos/:id
 ```
-DB enforces one promo per item via unique `menuItemId` (Data_Model §3.3).
+DB enforces one promo per item via unique `menuItemId` (Data_Model §3.3); the service answers 409 `PROMO_EXISTS` before the index does. A new promo starts **active**. `promoPrice` must be below the item's `basePrice` (422 `PROMO_PRICE_INVALID`). Create, edit, toggle and delete all emit `menu:promo` (`promo: null` when inactive or deleted).
 
 ### Customization groups (nested under a menu item)
 Managed through `POST/PATCH /admin/menu/:id` payloads (groups + options inline), OR dedicated:

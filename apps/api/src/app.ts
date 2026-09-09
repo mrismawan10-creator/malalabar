@@ -37,6 +37,8 @@ import { createKdsService } from "./services/kds.service.js";
 import { createPaymentService } from "./services/payment.service.js";
 import { createMidtransService } from "./services/midtrans.service.js";
 import { createMidtransWebhookService } from "./services/midtrans-webhook.service.js";
+import { createMenuAdminService } from "./services/menu-admin.service.js";
+import { createPrismaMenuAdminRepository } from "./repositories/menu-admin.repository.js";
 import { registerRoutes } from "./routes/index.js";
 
 export interface BuildAppOptions {
@@ -168,9 +170,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
       prisma: prisma!,
       gateway: app.gateway,
     }),
+    menuAdminService: createMenuAdminService({
+      repo: createPrismaMenuAdminRepository(prisma!),
+      prisma: prisma!,
+      gateway: app.gateway,
+    }),
     sessionRepository,
     tableRepository,
-    menuRepository,
   });
 
   return app;

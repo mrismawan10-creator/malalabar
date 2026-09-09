@@ -60,6 +60,8 @@ export function createMenuAdminService(deps: {
   repo: MenuAdminRepository;
   prisma: PrismaClient;
   gateway: RealtimeGateway;
+  /** Server-side check that a submitted imageUrl came from our upload flow. */
+  validateImageUrl?: (url: string) => Promise<void>;
 }): MenuAdminService {
   const { repo, gateway } = deps;
 
@@ -135,6 +137,7 @@ export function createMenuAdminService(deps: {
 
     async createItem(body, actor) {
       await requireCategory(body.categoryId);
+      if (body.imageUrl) await deps.validateImageUrl?.(body.imageUrl);
       const item = await repo.createItem({
         name: body.name,
         description: body.description ?? null,
@@ -153,6 +156,9 @@ export function createMenuAdminService(deps: {
     async updateItem(id, body, actor) {
       const before = await requireItem(id);
       if (body.categoryId) await requireCategory(body.categoryId);
+      if (body.imageUrl && body.imageUrl !== before.imageUrl) {
+        await deps.validateImageUrl?.(body.imageUrl);
+      }
 
       const item = await repo.updateItem(id, {
         ...(body.name !== undefined ? { name: body.name } : {}),

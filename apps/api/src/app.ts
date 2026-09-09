@@ -39,6 +39,7 @@ import { createMidtransService } from "./services/midtrans.service.js";
 import { createMidtransWebhookService } from "./services/midtrans-webhook.service.js";
 import { createMenuAdminService } from "./services/menu-admin.service.js";
 import { createPrismaMenuAdminRepository } from "./repositories/menu-admin.repository.js";
+import { createUploadService } from "./services/upload.service.js";
 import { registerRoutes } from "./routes/index.js";
 
 export interface BuildAppOptions {
@@ -135,6 +136,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
     await Promise.all([disconnectRedis(), disconnectPrisma()]);
   });
 
+  const uploadService = createUploadService({ cloudinaryUrl: config.CLOUDINARY_URL });
+
   await app.register(registerRoutes, {
     prefix: "/api/v1",
     tableService: createTableService(tableRepository),
@@ -174,7 +177,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
       repo: createPrismaMenuAdminRepository(prisma!),
       prisma: prisma!,
       gateway: app.gateway,
+      validateImageUrl: (url) => uploadService.assertValidMenuImageUrl(url),
     }),
+    uploadService,
     sessionRepository,
     tableRepository,
   });

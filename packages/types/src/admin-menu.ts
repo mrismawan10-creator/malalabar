@@ -125,3 +125,22 @@ export interface UpdatePromoRequest {
 export interface TogglePromoRequest {
   isActive: boolean;
 }
+
+// ── Image upload ──────────────────────────────────────────────────────────────
+
+/**
+ * `POST /admin/uploads/sign` — everything the browser needs to upload one
+ * menu image straight to Cloudinary. The secret stays on the API; the
+ * signature covers `folder`, `allowed_formats` and `timestamp`, so all three
+ * must be sent unchanged with the file.
+ */
+export interface UploadSignatureResponse {
+  cloudName: string;
+  apiKey: string;
+  timestamp: number;
+  signature: string;
+  folder: string;
+  allowedFormats: string;
+  uploadUrl: string;
+  maxBytes: number;
+}

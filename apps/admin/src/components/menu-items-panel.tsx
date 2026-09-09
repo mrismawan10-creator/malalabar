@@ -8,6 +8,7 @@ import type {
   CreateMenuItemRequest,
 } from "@malalabar/types";
 import { AdminApiError, adminFetch, rupiah } from "@/lib/admin-api";
+import { uploadMenuImage } from "@/lib/cloudinary-upload";
 
 type Draft = {
   name: string;
@@ -15,6 +16,7 @@ type Draft = {
   categoryId: string;
   basePrice: string;
   isAvailable: boolean;
+  imageUrl: string | null;
 };
 
 const emptyDraft = (categoryId: string): Draft => ({
@@ -23,6 +25,7 @@ const emptyDraft = (categoryId: string): Draft => ({
   categoryId,
   basePrice: "",
   isAvailable: true,
+  imageUrl: null,
 });
 
 export function MenuItemsPanel({
@@ -49,6 +52,7 @@ export function MenuItemsPanel({
   const [editing, setEditing] = useState<AdminMenuItem | "new" | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft(""));
   const [formError, setFormError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -124,9 +128,26 @@ export function MenuItemsPanel({
       categoryId: item.categoryId,
       basePrice: String(item.basePrice),
       isAvailable: item.isAvailable,
+      imageUrl: item.imageUrl,
     });
     setFormError(null);
     setEditing(item);
+  };
+
+  const onPickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    setFormError(null);
+    try {
+      const url = await uploadMenuImage(file, token);
+      setDraft((d) => ({ ...d, imageUrl: url }));
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Upload foto gagal");
+    } finally {
+      setUploading(false);
+    }
   };
 
   const save = async () => {
@@ -141,6 +162,7 @@ export function MenuItemsPanel({
       categoryId: draft.categoryId,
       basePrice,
       isAvailable: draft.isAvailable,
+      imageUrl: draft.imageUrl,
     };
     setFormError(null);
     try {
@@ -286,10 +308,24 @@ export function MenuItemsPanel({
                     />
                   </td>
                   <td className="p-3">
-                    <div className="font-medium text-ink">{item.name}</div>
-                    {item.description && (
-                      <div className="text-xs text-ink-secondary line-clamp-1">{item.description}</div>
-                    )}
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-surface-line bg-surface-page">
+                        {item.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={item.imageUrl} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-base opacity-40">
+                            🍽️
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-medium text-ink">{item.name}</div>
+                        {item.description && (
+                          <div className="text-xs text-ink-secondary line-clamp-1">{item.description}</div>
+                        )}
+                      </div>
+                    </div>
                   </td>
                   <td className="p-3 text-ink">{categoryName.get(item.categoryId) ?? item.categoryName}</td>
                   <td className="p-3 text-right font-medium text-ink">{rupiah(item.basePrice)}</td>
@@ -344,6 +380,43 @@ export function MenuItemsPanel({
             <h2 className="text-lg font-bold text-ink">
               {editing === "new" ? "Tambah menu" : `Edit: ${editing.name}`}
             </h2>
+
+            <div className="flex items-center gap-4">
+              <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-surface-line bg-surface-page">
+                {draft.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={draft.imageUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-2xl opacity-40">
+                    🍽️
+                  </div>
+                )}
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <label className="inline-block px-3 py-1.5 bg-surface-hover hover:bg-surface-hover-active rounded-lg text-sm font-medium text-ink cursor-pointer">
+                    {uploading ? "Mengunggah…" : draft.imageUrl ? "Ganti foto" : "Unggah foto"}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png"
+                      className="sr-only"
+                      onChange={onPickImage}
+                      disabled={uploading}
+                    />
+                  </label>
+                  {draft.imageUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setDraft({ ...draft, imageUrl: null })}
+                      className="text-sm text-danger-ink hover:underline"
+                    >
+                      Hapus foto
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-ink-secondary">JPG atau PNG, maksimal 2 MB.</p>
+              </div>
+            </div>
 
             <label className="block">
               <span className="block text-sm font-medium text-ink mb-1">Nama</span>
@@ -417,7 +490,8 @@ export function MenuItemsPanel({
               <button
                 type="button"
                 onClick={save}
-                className="flex-1 px-4 py-2 bg-primary hover:bg-primary-hover text-white font-medium rounded-lg"
+                disabled={uploading}
+                className="flex-1 px-4 py-2 bg-primary hover:bg-primary-hover disabled:bg-surface-hover text-white font-medium rounded-lg"
               >
                 Simpan
               </button>

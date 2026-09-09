@@ -329,6 +329,11 @@ POST   /admin/menu/:id/availability               { isAvailable }  → one-click
 POST   /admin/menu/availability/bulk              { ids: string[], isAvailable }  → bulk toggle
 ```
 Image upload: client uploads to Cloudinary (signed), sends back the resulting `imageUrl`. Max 2MB, JPG/PNG enforced client + server.
+```
+POST   /admin/uploads/sign                          → { upload: { cloudName, apiKey, timestamp, signature,
+                                                                  folder, allowedFormats, uploadUrl, maxBytes } }
+```
+The browser POSTs `file` plus every signed param (`timestamp`, `folder`, `allowed_formats`, `api_key`, `signature`) to `uploadUrl` and sends back `secure_url` as `imageUrl`. 503 `UPLOAD_NOT_CONFIGURED` when `CLOUDINARY_URL` is unset. On create/patch the API re-validates `imageUrl` before saving: it must be `https://res.cloudinary.com/<our cloud>/image/upload/…/malalabar/menu/…`, and a HEAD must report `image/jpeg|png` and ≤ 2 MB — otherwise 422 (`IMAGE_URL_INVALID`, `IMAGE_TYPE_INVALID`, `IMAGE_TOO_LARGE`, `IMAGE_UNREACHABLE`).
 
 Realtime: availability changes (single, bulk, and the implicit one on DELETE) emit **one** `menu:availability`; a `basePrice` change on an item with an active promo re-emits `menu:promo` because `discountPercent` is derived. Create/edit of other fields is not pushed — customers pick it up on their next menu load. Every write is audited under the acting staff (hard rule 9). Customization groups are read back on `GET /admin/menu/:id` but edited via the dedicated endpoints below (not yet implemented).
 

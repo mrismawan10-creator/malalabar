@@ -9,7 +9,8 @@
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "qr:reissue": "tsx src/scripts/reissue-qr-tokens.ts"
+    "qr:reissue": "tsx src/scripts/reissue-qr-tokens.ts",
+    "set-password": "tsx src/scripts/set-staff-password.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",

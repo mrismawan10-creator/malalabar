@@ -1,0 +1,17 @@
+# Keeps build context small and, more importantly, keeps secrets out of the
+# image: .env files are never copied, only the committed examples.
+node_modules
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+**/*.tsbuildinfo
+
+.git
+.github
+docs
+*.md
+
+**/.env
+**/.env.*
+!**/.env.example

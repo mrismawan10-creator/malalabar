@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient, StaffRole } from "@malalabar/db";
-import type { AuditLogEntry, SuperadminStaffRow } from "@malalabar/types";
+import type { AuditLogEntry, AuditLogViewEntry, SuperadminStaffRow } from "@malalabar/types";
 import { AppError } from "../lib/errors.js";
 
 /**
@@ -49,6 +49,15 @@ export interface StaffRepository {
     page: number,
     pageSize: number,
   ): Promise<{ rows: AuditLogEntry[]; total: number }>;
+  /** Global audit log with optional filters (API_Contract §8). */
+  listAuditLog(input: {
+    page: number;
+    pageSize: number;
+    from: Date | null;
+    to: Date | null;
+    actorId?: string;
+    action?: string;
+  }): Promise<{ rows: AuditLogViewEntry[]; total: number }>;
   writeAudit(input: {
     actorId: string;
     action: string;
@@ -258,6 +267,55 @@ export function createPrismaStaffRepository(
           ipAddress: input.ipAddress,
         },
       });
+    },
+
+    async listAuditLog(input) {
+      const where: Prisma.AuditLogWhereInput = {
+        createdAt: {
+          ...(input.from ? { gte: input.from } : {}),
+          ...(input.to ? { lt: input.to } : {}),
+        },
+        ...(input.actorId ? { actorId: input.actorId } : {}),
+        ...(input.action ? { action: input.action } : {}),
+      };
+
+      const [rows, total] = await Promise.all([
+        prisma.auditLog.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          skip: (input.page - 1) * input.pageSize,
+          take: input.pageSize,
+          select: {
+            id: true,
+            actorType: true,
+            actorId: true,
+            action: true,
+            entityType: true,
+            entityId: true,
+            metadata: true,
+            ipAddress: true,
+            createdAt: true,
+            staffUser: { select: { name: true } },
+          },
+        }),
+        prisma.auditLog.count({ where }),
+      ]);
+
+      return {
+        rows: rows.map((row) => ({
+          id: row.id,
+          actorType: row.actorType,
+          actorId: row.actorId,
+          actorName: row.staffUser?.name ?? null,
+          action: row.action,
+          entityType: row.entityType,
+          entityId: row.entityId,
+          metadata: (row.metadata ?? null) as unknown,
+          ipAddress: row.ipAddress,
+          createdAt: row.createdAt.toISOString(),
+        })),
+        total,
+      };
     },
   };
 }

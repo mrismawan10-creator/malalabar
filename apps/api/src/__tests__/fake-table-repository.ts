@@ -8,12 +8,25 @@ import type { TableRepository } from "../repositories/table.repository.js";
  */
 export function createFakeTableRepository(
   seed: RestaurantTable[] = [],
-): TableRepository & { all(): RestaurantTable[] } {
+): TableRepository & {
+  all(): RestaurantTable[];
+  audits(): Array<{ actorId: string; action: string; entityId: string }>;
+} {
   const rows = new Map<string, RestaurantTable>(seed.map((r) => [r.id, r]));
+  const auditRows: Array<{ actorId: string; action: string; entityId: string }> = [];
   let nextId = seed.length + 1;
 
   return {
     all: () => [...rows.values()],
+    audits: () => [...auditRows],
+
+    async writeAudit(input) {
+      auditRows.push({
+        actorId: input.actorId,
+        action: input.action,
+        entityId: input.entityId,
+      });
+    },
 
     async list({ page, pageSize }) {
       const all = [...rows.values()];

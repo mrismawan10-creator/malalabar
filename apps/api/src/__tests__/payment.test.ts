@@ -12,6 +12,7 @@ describe("Payment Service", () => {
     mockPrisma = {
       tableSession: {
         findUnique: vi.fn(),
+        update: vi.fn().mockResolvedValue({}),
       } as any,
       payment: {
         findUnique: vi.fn(),

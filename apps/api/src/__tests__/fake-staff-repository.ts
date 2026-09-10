@@ -161,6 +161,34 @@ export function createFakeStaffRepository(): StaffRepository & {
         createdAt: new Date().toISOString(),
       });
     },
+
+    async listAuditLog(input) {
+      const nameOf = (actorId: string | null) =>
+        users.find((u) => u.id === actorId)?.name ?? null;
+      const filtered = auditRows.filter((row) => {
+        if (input.actorId && row.actorId !== input.actorId) return false;
+        if (input.action && row.action !== input.action) return false;
+        if (input.from && row.createdAt < input.from.toISOString()) return false;
+        if (input.to && row.createdAt >= input.to.toISOString()) return false;
+        return true;
+      });
+      const start = (input.page - 1) * input.pageSize;
+      return {
+        rows: filtered.slice(start, start + input.pageSize).map((row) => ({
+          id: row.createdAt,
+          actorType: "STAFF",
+          actorId: row.actorId,
+          actorName: nameOf(row.actorId),
+          action: row.action,
+          entityType: row.entityType,
+          entityId: row.entityId,
+          metadata: row.metadata as unknown,
+          ipAddress: row.ipAddress ?? null,
+          createdAt: row.createdAt,
+        })),
+        total: filtered.length,
+      };
+    },
   };
 
   return { ...repo, staff: () => [...users], audits: () => [...auditRows] };

@@ -600,6 +600,13 @@ GET    /superadmin/audit-log?page=&from=&to=&actorId=&action=
   orders are preserved for reconciliation; the table is freed. Terminal
   session 409 `SESSION_NOT_OPEN`. Emits `session:closed { reason: "FORCED" }`;
   the session token dies with the status change (customer guard).
+- **Audit log**: `GET /superadmin/audit-log?page=&pageSize=&from=&to=&actorId=&action=`
+  — every staff state-changing action across roles (orders, payments, menu,
+  tables, staff, settings, stages, overrides), newest first, paginated per
+  §1.3. `from`/`to` are WIB calendar days (`to` inclusive, 422 `INVALID_PERIOD`
+  on inversion); `actorId` and `action` are exact matches. Rows carry
+  `actorType`, `actorId`, `actorName` (staff name when applicable), action,
+  entity, metadata, IP and timestamp.
 
 ---
 

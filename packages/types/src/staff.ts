@@ -68,6 +68,16 @@ export interface AuditLogEntry {
 
 export type StaffActivityResponse = PaginatedResponse<AuditLogEntry>;
 
+/** Global audit-log viewer row (API_Contract §8, PRD 4.7.4). */
+export interface AuditLogViewEntry extends AuditLogEntry {
+  actorType: string;
+  actorId: string | null;
+  /** Staff name when `actorType === "STAFF"`, else null. */
+  actorName: string | null;
+}
+
+export type AuditLogResponse = PaginatedResponse<AuditLogViewEntry>;
+
 export interface ChangePasswordRequest {
   currentPassword: string;
   newPassword: string;

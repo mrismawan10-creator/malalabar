@@ -1,4 +1,4 @@
-import type { PrismaClient, RestaurantTable } from "@malalabar/db";
+import type { Prisma, PrismaClient, RestaurantTable } from "@malalabar/db";
 
 /**
  * Repository = Prisma queries only, no business rules (SDD_Core §2.3).
@@ -34,6 +34,16 @@ export interface TableRepository {
 
   /** Overwrites qrToken and bumps tokenVersion in one statement. */
   rotateToken(id: string, qrToken: string): Promise<RestaurantTable>;
+
+  /** Audit trail for table state changes (hard rule 9). */
+  writeAudit(input: {
+    actorId: string;
+    action: string;
+    entityType: string;
+    entityId: string;
+    metadata?: Prisma.InputJsonObject;
+    ipAddress?: string;
+  }): Promise<void>;
 }
 
 export function createPrismaTableRepository(
@@ -78,6 +88,20 @@ export function createPrismaTableRepository(
       return prisma.restaurantTable.update({
         where: { id },
         data: { qrToken, tokenVersion: { increment: 1 } },
+      });
+    },
+
+    async writeAudit(input) {
+      await prisma.auditLog.create({
+        data: {
+          actorType: "STAFF",
+          actorId: input.actorId,
+          action: input.action,
+          entityType: input.entityType,
+          entityId: input.entityId,
+          metadata: input.metadata ?? {},
+          ipAddress: input.ipAddress,
+        },
       });
     },
   };

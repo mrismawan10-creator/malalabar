@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useStaffToken } from "@/lib/use-staff-token";
+import { readStaffRole } from "@/lib/staff-role";
 
 const LINKS = [
   { href: "/cashier", label: "Kasir" },
@@ -10,11 +12,20 @@ const LINKS = [
   { href: "/analytics", label: "Laporan" },
 ];
 
+const SUPERADMIN_LINKS = [
+  { href: "/superadmin", label: "Superadmin" },
+];
+
 export function AdminNav({ onLogout }: { onLogout: () => void }) {
   const pathname = usePathname();
+  const { token } = useStaffToken();
+  // UX only — the backend enforces SUPERADMIN on every /superadmin route.
+  const isSuperadmin = readStaffRole(token) === "SUPERADMIN";
+  const links = isSuperadmin ? [...LINKS, ...SUPERADMIN_LINKS] : LINKS;
+
   return (
     <nav className="flex items-center gap-2">
-      {LINKS.map((l) => {
+      {links.map((l) => {
         const active = pathname.startsWith(l.href);
         return (
           <Link

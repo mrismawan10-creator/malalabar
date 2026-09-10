@@ -50,6 +50,8 @@ import { createStaffAdminService } from "./services/staff-admin.service.js";
 import { createSuperadminSettingsService } from "./services/superadmin-settings.service.js";
 import { createStageAdminService } from "./services/stage-admin.service.js";
 import { createSuperadminOverrideService } from "./services/superadmin-override.service.js";
+import { createSuperadminAuditService } from "./services/superadmin-audit.service.js";
+import { createSessionSweepService } from "./services/session-sweep.service.js";
 import type { StageRepository } from "./repositories/stage.repository.js";
 import { createPrismaStageRepository } from "./repositories/stage.repository.js";
 import type { StaffStatusChecker } from "./lib/staff-status.js";
@@ -232,9 +234,30 @@ export async function buildApp(options: BuildAppOptions = {}) {
       prisma: prisma!,
       gateway: app.gateway,
     }),
+    auditService: createSuperadminAuditService({ repo: staffRepository }),
     sessionRepository,
     tableRepository,
   });
+
+  // Session timeout sweep — a scheduled job, not a per-request check
+  // (State_Machine §2). Skipped under test: the suite exercises sweepOnce
+  // directly, and fake-only boots have no live prisma to sweep against.
+  if (config.NODE_ENV !== "test") {
+    const sweep = createSessionSweepService({
+      prisma: prisma!,
+      settings: settingsRepository,
+      gateway: app.gateway,
+    });
+    const run = () => {
+      void sweep.sweepOnce().catch((err: unknown) => {
+        app.log.error({ err }, "session timeout sweep failed");
+      });
+    };
+    const timer = setInterval(run, 60_000);
+    timer.unref?.();
+    app.addHook("onClose", () => clearInterval(timer));
+    run();
+  }
 
   return app;
 }

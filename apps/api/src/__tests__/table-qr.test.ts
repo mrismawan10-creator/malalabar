@@ -3,7 +3,9 @@ import type { FastifyInstance } from "fastify";
 import type { TableWithTokenResponse } from "@malalabar/types";
 import jsQRImport from "jsqr";
 import { PNG } from "pngjs";
+import jwt from "jsonwebtoken";
 import { buildApp } from "../app.js";
+import { config } from "../config.js";
 import { buildTableOrderUrl, qrFileBaseName } from "../lib/qr-image.js";
 import { createFakeTableRepository } from "./fake-table-repository.js";
 
@@ -11,8 +13,22 @@ let app: FastifyInstance;
 
 const BASE = "/api/v1/admin/tables";
 
+/** ADMIN staff token — these routes have been guarded since Slice 3/5. */
+const adminAuth = () => ({
+  authorization: `Bearer ${jwt.sign(
+    { type: "staff", role: "ADMIN", email: "admin@test.local" },
+    config.JWT_SECRET,
+    { subject: "staff-admin-1", algorithm: "HS256", expiresIn: 3600 },
+  )}`,
+});
+
+
 beforeEach(async () => {
-  app = await buildApp({ tableRepository: createFakeTableRepository() });
+  app = await buildApp({
+    tableRepository: createFakeTableRepository(),
+    // Per-request guard check; always clean in these tests.
+    staffStatusChecker: async () => ({ isSuspended: false, mustReset: false }),
+  });
   await app.ready();
 });
 
@@ -23,7 +39,7 @@ afterEach(async () => {
 async function createTable(
   body: Record<string, unknown>,
 ): Promise<TableWithTokenResponse> {
-  const res = await app.inject({ method: "POST", url: BASE, payload: body });
+  const res = await app.inject({ headers: adminAuth(), method: "POST", url: BASE, payload: body });
   return res.json<TableWithTokenResponse>();
 }
 
@@ -54,6 +70,7 @@ describe("GET /admin/tables/:id/qr — PNG", () => {
     const created = await createTable({ number: "05", area: "Outdoor" });
 
     const res = await app.inject({
+      headers: adminAuth(),
       method: "GET",
       url: `${BASE}/${created.table.id}/qr?format=png`,
     });
@@ -79,12 +96,14 @@ describe("GET /admin/tables/:id/qr — PNG", () => {
     const created = await createTable({ number: "05" });
     const rotated = (
       await app.inject({
+      headers: adminAuth(),
         method: "POST",
         url: `${BASE}/${created.table.id}/qr/regenerate`,
       })
     ).json<TableWithTokenResponse>();
 
     const res = await app.inject({
+      headers: adminAuth(),
       method: "GET",
       url: `${BASE}/${created.table.id}/qr`,
     });
@@ -99,6 +118,7 @@ describe("GET /admin/tables/:id/qr — PNG", () => {
     const created = await createTable({ number: "42", area: "Lantai2" });
 
     const res = await app.inject({
+      headers: adminAuth(),
       method: "GET",
       url: `${BASE}/${created.table.id}/qr`,
     });
@@ -111,6 +131,7 @@ describe("GET /admin/tables/:id/qr — PNG", () => {
   it("defaults to PNG when no format is given", async () => {
     const created = await createTable({ number: "05" });
     const res = await app.inject({
+      headers: adminAuth(),
       method: "GET",
       url: `${BASE}/${created.table.id}/qr`,
     });
@@ -120,6 +141,7 @@ describe("GET /admin/tables/:id/qr — PNG", () => {
   it("offers a readable download filename", async () => {
     const created = await createTable({ number: "05", area: "Outdoor" });
     const res = await app.inject({
+      headers: adminAuth(),
       method: "GET",
       url: `${BASE}/${created.table.id}/qr`,
     });
@@ -131,12 +153,14 @@ describe("GET /admin/tables/:id/qr — PNG", () => {
   it("still serves a QR for a deactivated table (PRD 4.1.1 blocks the customer, not printing)", async () => {
     const created = await createTable({ number: "05" });
     await app.inject({
+      headers: adminAuth(),
       method: "PATCH",
       url: `${BASE}/${created.table.id}`,
       payload: { isActive: false },
     });
 
     const res = await app.inject({
+      headers: adminAuth(),
       method: "GET",
       url: `${BASE}/${created.table.id}/qr`,
     });
@@ -149,6 +173,7 @@ describe("GET /admin/tables/:id/qr — PDF", () => {
     const created = await createTable({ number: "05", area: "Outdoor" });
 
     const res = await app.inject({
+      headers: adminAuth(),
       method: "GET",
       url: `${BASE}/${created.table.id}/qr?format=pdf`,
     });
@@ -169,6 +194,7 @@ describe("GET /admin/tables/:id/qr — PDF", () => {
 
   it("returns 404 for an unknown table (failure path)", async () => {
     const res = await app.inject({
+      headers: adminAuth(),
       method: "GET",
       url: `${BASE}/nope/qr?format=pdf`,
     });
@@ -180,6 +206,7 @@ describe("GET /admin/tables/:id/qr — validation", () => {
   it("rejects an unsupported format with 400 (failure path)", async () => {
     const created = await createTable({ number: "05" });
     const res = await app.inject({
+      headers: adminAuth(),
       method: "GET",
       url: `${BASE}/${created.table.id}/qr?format=svg`,
     });

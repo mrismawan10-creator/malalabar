@@ -84,7 +84,18 @@ res:  {
                     serviceEnabled, servicePercent, enabledPaymentMethods: ["CASH","CARD","ONLINE"] }
       }
 ```
-409 if the table is inactive or token version is stale (QR was regenerated).
+Returns **200**, not 201: this is find-or-create. A second phone scanning the same
+table joins the *same* OPEN session and shares one bill (SDD_Core §5.1).
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `INVALID_TABLE_TOKEN` | Signature does not verify — not a QR this server minted |
+| 409 | `QR_REGENERATED` | Correctly signed but no longer stored: the QR was rotated |
+| 409 | `TABLE_INACTIVE` | Table is deactivated (PRD 4.1.1) |
+| 503 | `SETTINGS_MISSING` | SystemSettings singleton absent — restaurant not configured |
+
+The session token's lifetime tracks `SystemSettings.sessionTimeoutMins`, so a dead
+session cannot outlive its token (Auth_RBAC_Spec §3).
 
 ### `POST /auth/kds/login`
 Public. Device token exchange for the kitchen display.
@@ -114,6 +125,13 @@ res:  {
       }
 ```
 Items with `isAvailable=false` are still returned (rendered as HABIS), per PRD 4.2.2.
+Soft-deleted items are not. `discountPercent` is derived server-side —
+`round((basePrice - promoPrice) / basePrice * 100)`, never negative — so the carousel,
+the item card and the `menu:promo` event all show the same badge.
+
+A promo is visible only while `isActive`; an inactive one is absent from `promos` **and**
+its item's `promo` is `null` (PRD 4.2.1). Errors: `ITEM_NOT_FOUND` (404) on
+`/menu/items/:id` for an unknown or soft-deleted item.
 
 ### `GET /menu/items/:id`
 Item detail with customization groups.
@@ -151,10 +169,25 @@ res:  {
         }
       }
 ```
-422 if a required SINGLE_SELECT group has no selection, or a sold-out item is included. **The server ignores any price the client sends.** (CLAUDE.md §5.2, §5.3.)
+**The server ignores any price the client sends** — the request schema strips unknown
+keys, so `price`/`lineTotal` never reach business logic (CLAUDE.md §5.2, §5.3).
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Empty `items`, quantity outside 1–99, malformed body |
+| 422 | `ITEM_UNAVAILABLE` | A sold-out item is included |
+| 422 | `ITEM_NOT_FOUND` | Unknown or soft-deleted `menuItemId` |
+| 422 | `REQUIRED_OPTION_MISSING` | A required group has no selection |
+| 422 | `INVALID_OPTION` | Option id not on this item, or 2+ in a SINGLE_SELECT group |
+| 503 | `STAGE_NOT_CONFIGURED` | No active AWAITING_CONFIRMATION stage exists |
+
+A batch is all-or-nothing: one bad line rejects the whole submission and writes nothing.
+
+`batchNumber` is assigned inside the write transaction under a session row lock, so two
+phones sharing a session (SDD_Core §5.1) always get distinct, gapless numbers.
 
 ### `GET /sessions/:sessionId/orders`
-All order batches in the session with current status, for the tracking screen.
+All order batches in the session with current status, for the tracking screen. Unlike every other customer route, this one also accepts a **PAID** session, so the customer can keep watching their food arrive after settling the bill; it still rejects TIMEOUT/FORCED closes with 401 `SESSION_CLOSED`.
 ```
 res:  { orders: [ { id, batchNumber, currentStage: { label, semanticKey, sortOrder },
                     rejected, rejectReason, items: [...snapshots...], createdAt } ] }
@@ -166,9 +199,21 @@ Computed bill across all non-rejected orders.
 res:  {
         lines: [ { nameSnapshot, quantity, lineTotal, customizations: [...] } ],
         subtotal, taxAmount, serviceAmount, totalAmount,
-        enabledPaymentMethods: ["CASH","CARD","ONLINE"]
+        enabledPaymentMethods: ["CASH","CARD","ONLINE"],
+        pendingPayment: { id, method: "CASH"|"CARD", totalAmount } | null
       }
 ```
+`pendingPayment` is set while a CASH/CARD payment awaits cashier confirmation, so a reloaded customer page can resume "waiting for the cashier" instead of offering to pay again.
+`subtotal` is the sum of **stored** `lineTotal` values, never recomputed against the live
+menu (CLAUDE.md hard rule 3). Tax and service are `floor(subtotal * percent / 100)` and are
+omitted (0) when disabled in settings (Data_Model §3.6).
+
+These amounts are a **live preview, not a commitment**: payment initiation recomputes them
+and freezes the result on the `Payment` row (T4.1), so a settings change between viewing the
+bill and paying cannot move an in-flight payment.
+
+Rejected batches are excluded. Both endpoints are scoped to the token's own session — a
+mismatched `:sessionId` is 403.
 
 ### `POST /sessions/:sessionId/payment`  ← initiate payment
 ```
@@ -221,13 +266,22 @@ res:  { order: { id, rejected: true, rejectReason } }
 ```
 
 ### `GET /cashier/active-tables`
-Tables with an open session and their unpaid totals.
+Tables with an OPEN session, plus PAID sessions that still have unserved orders (so the cashier can mark food as served after payment). `unpaidTotal` is 0 once paid.
 ```
-res:  { tables: [ { sessionId, tableNumber, orderCount, readyCount, unpaidTotal } ] }
+res:  { tables: [ { sessionId, tableNumber, orderCount, readyCount, unpaidTotal, paid,
+                    readyOrders: [ { id, batchNumber } ],
+                    pendingPayment: { id, method: "CASH"|"CARD", totalAmount } | null } ] }
 ```
 
+### `POST /cashier/orders/:id/serve`
+READY → SERVED. The order-terminal transition, made by the cashier when the food reaches the table. Writes an audit row and emits `order:status` to the session, cashier and KDS rooms.
+```
+res:  { order: { id, currentStage: { id, label, semanticKey: "SERVED", sortOrder } } }
+```
+404 if the order does not exist. 409 if it is not currently READY (including already SERVED).
+
 ### `POST /cashier/payments/:id/confirm`
-Manual confirmation for CASH/CARD. On success: Payment→PAID, session→PAID, table freed.
+Manual confirmation for CASH/CARD. On success: every batch in the session still AWAITING_CONFIRMATION is approved by this cashier (pay-first flow — audited and emitted per batch), then Payment→PAID, session→PAID, table freed. The pending payment is surfaced to the cashier via `active-tables.pendingPayment`.
 ```
 req (CASH):  { cashReceived: number }      // server computes change
 req (CARD):  { }                           // POS terminal already approved externally
@@ -275,6 +329,15 @@ POST   /admin/menu/:id/availability               { isAvailable }  → one-click
 POST   /admin/menu/availability/bulk              { ids: string[], isAvailable }  → bulk toggle
 ```
 Image upload: client uploads to Cloudinary (signed), sends back the resulting `imageUrl`. Max 2MB, JPG/PNG enforced client + server.
+```
+POST   /admin/uploads/sign                          → { upload: { cloudName, apiKey, timestamp, signature,
+                                                                  signedParams: { [k]: v }, folder,
+                                                                  allowedFormats, transformation,
+                                                                  uploadUrl, maxBytes } }
+```
+The browser POSTs `file`, `api_key`, `signature` and **every entry of `signedParams` verbatim** to `uploadUrl`, then sends back `secure_url` as `imageUrl`. `signedParams` is the authoritative list (today: `timestamp`, `folder`, `allowed_formats`, `transformation`); clients must not hard-code it, because any param missing from the form makes Cloudinary reject the signature. `transformation` (`c_limit,w_1600,h_1600,q_auto:good`) is applied by Cloudinary as the file is stored, so originals are capped at 1600 px; being inside the signature, a client cannot drop it. The admin app crops every photo to **4:3 at 1600×1200 JPEG in the browser** before uploading (owner pans/zooms; minimum zoom is "cover"), so stored menu images share one ratio and the 2 MB rule applies to that result. Per-slot sizing (4:3 card, square thumb, 4:3 detail) is done at delivery time by `imageUrl(url, slot)` in `packages/ui`, which injects `c_fill,g_auto,…,f_auto,q_auto` — subject-aware crop, WebP/AVIF, 2× for retina — and passes non-Cloudinary URLs through unchanged. 503 `UPLOAD_NOT_CONFIGURED` when `CLOUDINARY_URL` is unset. On create/patch the API re-validates `imageUrl` before saving: it must be `https://res.cloudinary.com/<our cloud>/image/upload/…/malalabar/menu/…`, and a HEAD must report `image/jpeg|png` and ≤ 2 MB — otherwise 422 (`IMAGE_URL_INVALID`, `IMAGE_TYPE_INVALID`, `IMAGE_TOO_LARGE`, `IMAGE_UNREACHABLE`).
+
+Realtime: availability changes (single, bulk, and the implicit one on DELETE) emit **one** `menu:availability`; a `basePrice` change on an item with an active promo re-emits `menu:promo` because `discountPercent` is derived. Create/edit of other fields is not pushed — customers pick it up on their next menu load. Every write is audited under the acting staff (hard rule 9). Customization groups are read back on `GET /admin/menu/:id` but edited via the dedicated endpoints below (not yet implemented).
 
 ### Categories
 ```
@@ -293,24 +356,63 @@ PATCH  /admin/promos/:id                            { promoPrice?, label? }
 POST   /admin/promos/:id/toggle                     { isActive }  → one-click, syncs to homepage
 DELETE /admin/promos/:id
 ```
-DB enforces one promo per item via unique `menuItemId` (Data_Model §3.3).
+DB enforces one promo per item via unique `menuItemId` (Data_Model §3.3); the service answers 409 `PROMO_EXISTS` before the index does. A new promo starts **active**. `promoPrice` must be below the item's `basePrice` (422 `PROMO_PRICE_INVALID`). Create, edit, toggle and delete all emit `menu:promo` (`promo: null` when inactive or deleted).
 
 ### Customization groups (nested under a menu item)
-Managed through `POST/PATCH /admin/menu/:id` payloads (groups + options inline), OR dedicated:
+Dedicated endpoints (the inline-in-`PATCH /admin/menu/:id` variant is not implemented):
 ```
-POST   /admin/menu/:id/customization-groups         { name, type, isRequired, options: [{name, surchargePrice}] }
-PATCH  /admin/customization-groups/:groupId
-DELETE /admin/customization-groups/:groupId
+POST   /admin/menu/:id/customization-groups          { name, type: SINGLE_SELECT|MULTI_SELECT, isRequired, options?: [{name, surchargePrice}] } → 201 { group }
+PATCH  /admin/customization-groups/:groupId           { name?, type?, isRequired? }                    → { group }
+DELETE /admin/customization-groups/:groupId           (cascades to options)                             → { ok }
+POST   /admin/customization-groups/:groupId/options   { name, surchargePrice }                          → 201 { option }
+PATCH  /admin/customization-options/:id               { name?, surchargePrice?, isAvailable? }          → { option }
+DELETE /admin/customization-options/:id                                                                 → { ok }
+POST   /admin/customization-options/:id/availability  { isAvailable }  → { option: { id, name, isAvailable, groupId, menuItemId } }
 ```
+`group` = `{ id, name, type, isRequired, options: [{ id, name, surchargePrice, isAvailable }] }`. New options start available; `sortOrder` follows creation order. Rules: a **required** group must keep at least one *available* option, otherwise its item becomes unorderable (`REQUIRED_OPTION_MISSING` at order time) — so creating a required group with no options, marking a group required while all its options are sold out, or disabling/deleting the last available option of a required group is refused with 422 (`GROUP_NEEDS_OPTIONS` / `LAST_REQUIRED_OPTION`). Deleting groups/options never touches past orders: they hold snapshots. 404 `GROUP_NOT_FOUND` / `OPTION_NOT_FOUND` when missing or the item is soft-deleted. All writes audited; no realtime event (detail is fetched when opened).
+Per-option availability ("Tambah Telur habis"): the option stays listed in `GET /menu/items/:id` with `isAvailable: false` so the customer sees why it cannot be picked; `POST /sessions/:id/orders` rejects a chosen sold-out option with 422 `OPTION_UNAVAILABLE`, the same status as a sold-out item (hard rule 2). Audited; no realtime event — the detail is fetched each time it is opened. 404 `OPTION_NOT_FOUND` if the option does not exist or its item is soft-deleted.
 
 ### Tables & QR
 ```
-GET    /admin/tables                                list: number, area, isActive, qr validity
-POST   /admin/tables                                { number, area? }
+GET    /admin/tables?page=1&pageSize=50             paginated (§1.3)
+POST   /admin/tables                                { number, area? }                    → 201
 PATCH  /admin/tables/:id                            { number?, area?, isActive? }
 POST   /admin/tables/:id/qr/regenerate              rotates qrToken, bumps tokenVersion → old QR invalid
 GET    /admin/tables/:id/qr?format=png|pdf          returns the QR file (PNG digital / PDF A5 print)
 ```
+
+Table shape (`AdminTable` in `packages/types`):
+```
+{ id, number, area, isActive, tokenVersion, createdAt, updatedAt }
+```
+`tokenVersion` is the "qr validity" marker — it increments on every regeneration,
+so staff can see which printed QRs are stale.
+
+Create and regenerate both return the freshly minted token:
+```
+res:  { table: AdminTable, qrToken }
+```
+`qrToken` is a credential and is returned **only** at mint time — never in
+`GET /admin/tables`. To recover it later, download the QR file.
+
+The token is opaque and signed (CLAUDE.md hard rule 6): `<nonce>.<hmac>`, where the
+nonce is 32 random bytes carrying no table number, id or version. Signature validity
+is what lets `POST /sessions` answer 409 "QR regenerated" for a real-but-rotated token
+while rejecting junk with 400.
+
+Errors: `TABLE_NOT_FOUND` (404), `TABLE_NUMBER_TAKEN` (409 — `number` + `area` must be
+unique, and two tables with the same number and *no* area also collide).
+
+`GET /admin/tables/:id/qr` returns the file itself, not JSON:
+
+| `format` | Content-Type | Shape |
+|---|---|---|
+| `png` (default) | `image/png` | 800px, error correction M |
+| `pdf` | `application/pdf` | A5 portrait card: table number, area, QR, "Scan untuk memesan" |
+
+Both carry `Content-Disposition: attachment; filename="meja-05-outdoor.png"`. The encoded
+value is `<CUSTOMER_APP_URL>/order?t=<qrToken>` (PRD 4.1.2). A deactivated table still
+returns its QR — deactivation blocks the customer at `POST /sessions`, not the printing.
 
 ---
 

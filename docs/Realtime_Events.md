@@ -52,7 +52,7 @@ Naming: `domain:event`. All payloads are typed in `packages/types`. Every event 
 | Event | Emitted to | Trigger (HTTP write that precedes it) | Payload |
 |---|---|---|---|
 | `order:created` | `cashier` | Customer submits order (`POST /sessions/:id/orders`) | `{ orderId, tableNumber, batchNumber, itemCount, estimatedTotal, createdAt }` |
-| `order:status` | `session:{id}`, `cashier`, `kds` | Any order transition (approve, advance, cancel) | `{ orderId, sessionId, tableNumber, batchNumber, stage: { id, label, semanticKey, sortOrder }, updatedAt }` |
+| `order:status` | `session:{id}`, `cashier`, `kds` | Any order transition (approve, advance, serve, cancel) | `{ orderId, sessionId, tableNumber, batchNumber, stage: { id, label, semanticKey, sortOrder }, updatedAt }` |
 | `order:rejected` | `session:{id}` | Cashier rejects (`/reject`) | `{ orderId, batchNumber, reason }` |
 | `order:approved` | `kds` | Cashier approves (`/approve`) | full KDS card payload: `{ orderId, tableNumber, batchNumber, acceptedAt, items:[{nameSnapshot,quantity,note,customizations:[{groupNameSnapshot,optionNameSnapshot}]}] }` |
 | `order:ready` | `cashier` | Order advances to READY | `{ orderId, tableNumber, batchNumber }` |
@@ -61,6 +61,8 @@ Naming: `domain:event`. All payloads are typed in `packages/types`. Every event 
 Notes:
 - `order:status` is the general-purpose stepper update the customer screen listens to; it fires on **every** transition including movement through CUSTOM stages, so the customer sees "Plating" etc. automatically.
 - `order:approved` carries the full card so the KDS can render without a refetch. `order:ready` to cashier is a lightweight notification (cashier refetches the active-table summary if needed).
+- Menu emits are wired from the admin routes (`/admin/menu*`, `/admin/promos*`, API_Contract §6): availability single/bulk/delete → one `menu:availability`; promo create/edit/toggle/delete and a base-price change under an active promo → `menu:promo`.
+- The customer socket is admitted on the JWT alone, so a PAID session keeps receiving `order:status` after `session:closed`. That is deliberate: the tracking stepper runs until every order reaches SERVED (`POST /cashier/orders/:id/serve`), which is the last `order:status` a session ever gets.
 
 ### 3.2 Menu availability & promo
 
@@ -115,6 +117,29 @@ These keep realtime consistent and the scale path cheap (SDD ADR-5):
 3. **One event per logical change.** Bulk availability = one `menu:availability` with an array, not a loop of emits.
 4. **Payloads are typed** in `packages/types`; the gateway imports them. A payload shape change is a contract change (update this doc + types in the same task).
 5. Because every emit is funnelled through the gateway, adding `@socket.io/redis-adapter` for horizontal scaling later is a single-file change. Do not pre-build it for V1.
+
+### 6.1 Gateway method surface
+
+`apps/api/src/realtime/gateway.ts` is the only file that touches `io`. Services call these
+methods — never a socket, never `io.emit`. Two payloads carry no `sessionId`, so the room is
+passed explicitly as the first argument.
+
+| Gateway method | Emits | Rooms |
+|---|---|---|
+| `orderCreated(payload)` | `order:created` | `cashier` |
+| `orderStatusChanged(payload)` | `order:status` | `session:{payload.sessionId}`, `cashier`, `kds` |
+| `orderRejected(sessionId, payload)` | `order:rejected` | `session:{sessionId}` |
+| `orderApproved(payload)` | `order:approved` | `kds` |
+| `orderReady(payload)` | `order:ready` | `cashier` |
+| `orderCancelled(sessionId, payload)` | `order:cancelled` | `session:{sessionId}`, `cashier`, `kds` |
+| `menuAvailabilityChanged(payload)` | `menu:availability` | `menu` |
+| `menuPromoChanged(payload)` | `menu:promo` | `menu` |
+| `paymentConfirmed(payload)` | `payment:confirmed` | `session:{payload.sessionId}`, `cashier` |
+| `paymentFailed(payload)` | `payment:failed` | `session:{payload.sessionId}` |
+| `sessionClosed(payload)` | `session:closed` | `session:{payload.sessionId}`, `cashier` |
+
+The gateway is reached as `app.gateway` / `request.server.gateway` (Fastify decorator). It also
+exposes read-only `roomSize(room)` and `connectionCount()` for health checks and tests.
 
 ---
 

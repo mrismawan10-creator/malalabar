@@ -28,6 +28,7 @@ Every environment variable the system needs, grouped by service. Rules: secrets 
 | `MIDTRANS_IS_PRODUCTION` | `false` | `true` for live; sandbox first |
 | `CLOUDINARY_URL` | `cloudinary://key:secret@cloud` | Signed uploads + CDN |
 | `CORS_ORIGINS` | `https://order.x,https://admin.x,https://kds.x` | Comma-separated allowed origins; no wildcard in prod |
+| `CUSTOMER_APP_URL` | `https://order.x` | Public origin of the customer app. QR codes encode `<this>/order?t=<token>` (PRD 4.1.2). Defaults to `http://localhost:3000` in dev; **startup fails in production if left at the default** — a wrong value ships as unscannable printed cards |
 | `SESSION_TIMEOUT_DEFAULT_MINS` | `90` | Fallback if SystemSettings unset |
 | `RECONCILE_PENDING_AFTER_MINS` | `15` | Age before the Midtrans reconciliation sweep checks a PENDING online payment |
 
@@ -60,6 +61,30 @@ Next.js exposes only `NEXT_PUBLIC_*` vars to the browser. Never expose server ke
 | `NEXT_PUBLIC_WS_URL` | |
 
 No secret keys in any frontend. Cloudinary uploads use a signature minted by the backend, so the frontend never holds the Cloudinary secret.
+
+---
+
+## 2.5 Local development dependencies
+
+`docker-compose.yml` at the repo root runs Postgres and Redis for local work
+(production uses Railway's managed instances — SDD_Core §3):
+
+```bash
+docker compose up -d          # postgres + redis
+pnpm db:migrate               # or: prisma migrate deploy
+pnpm db:seed
+pnpm --filter api qr:reissue  # sign the seeded table tokens (see below)
+```
+
+Postgres is published on host port **5433**, not 5432, so it cannot collide with
+another Postgres already running on the machine. Local `DATABASE_URL` therefore
+reads `postgresql://malalabar:malalabar@localhost:5433/malalabar`. Redis uses the
+usual 6379.
+
+`qr:reissue` is required after a first seed: the seed lives in `packages/db` and
+cannot reach the signing key, so it writes placeholder table tokens that the
+script replaces with properly signed ones. It is idempotent and leaves valid
+tokens untouched, so it is safe to re-run.
 
 ---
 

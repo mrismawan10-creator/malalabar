@@ -128,11 +128,13 @@ model CustomizationGroup {
 }
 
 model CustomizationOption {
-  id             String @id @default(cuid())
+  id             String  @id @default(cuid())
   groupId        String
   name           String
-  surchargePrice Int    @default(0)
-  sortOrder      Int    @default(0)
+  surchargePrice Int     @default(0)
+  // Toggled by admin ("Tambah Telur habis"); enforced at order time (hard rule 2).
+  isAvailable    Boolean @default(true)
+  sortOrder      Int     @default(0)
 
   group CustomizationGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
@@ -168,6 +170,7 @@ enum StageSemantic {
   ACCEPTED
   IN_PROGRESS
   READY
+  SERVED
   CUSTOM
 }
 

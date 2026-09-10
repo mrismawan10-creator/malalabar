@@ -56,6 +56,9 @@ import type { StageRepository } from "./repositories/stage.repository.js";
 import { createPrismaStageRepository } from "./repositories/stage.repository.js";
 import type { StaffStatusChecker } from "./lib/staff-status.js";
 import { createStaffStatusChecker } from "./lib/staff-status.js";
+import type { KitchenDeviceStatusChecker } from "./lib/kitchen-device-status.js";
+import { createKitchenDeviceStatusChecker } from "./lib/kitchen-device-status.js";
+import { createKitchenDeviceAdminService } from "./services/kitchen-device-admin.service.js";
 import { registerRoutes } from "./routes/index.js";
 
 export interface BuildAppOptions {
@@ -73,6 +76,8 @@ export interface BuildAppOptions {
   reportsRepository?: ReportsRepository;
   /** Per-request suspend/mustReset check behind every staff guard. */
   staffStatusChecker?: StaffStatusChecker;
+  /** Per-request active/tokenVersion check behind every KDS guard. */
+  kitchenDeviceStatusChecker?: KitchenDeviceStatusChecker;
   stageRepository?: StageRepository;
 }
 
@@ -127,15 +132,24 @@ export async function buildApp(options: BuildAppOptions = {}) {
     } satisfies ApiError);
   });
 
-  // Socket.io shares this Fastify HTTP server (SDD_Core §3).
-  await app.register(realtimePlugin, { verifyToken: options.verifyToken });
-
   // Consulted by requireStaffRole on every staff request (Auth_RBAC_Spec
   // §2.5); injectable so tests can flip suspend/mustReset without a DB.
   app.decorate(
     "staffStatusChecker",
     options.staffStatusChecker ?? createStaffStatusChecker(),
   );
+
+  // Same for kitchen devices — deactivate/rotate must bite on the next
+  // request and the next handshake alike (hard rule 6).
+  const kitchenDeviceStatusChecker =
+    options.kitchenDeviceStatusChecker ?? createKitchenDeviceStatusChecker();
+  app.decorate("kitchenDeviceStatusChecker", kitchenDeviceStatusChecker);
+
+  // Socket.io shares this Fastify HTTP server (SDD_Core §3).
+  await app.register(realtimePlugin, {
+    verifyToken: options.verifyToken,
+    kitchenDeviceStatus: kitchenDeviceStatusChecker,
+  });
 
   const needsPrisma =
     !options.tableRepository ||
@@ -235,6 +249,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
       gateway: app.gateway,
     }),
     auditService: createSuperadminAuditService({ repo: staffRepository }),
+    kitchenDeviceAdminService: createKitchenDeviceAdminService({
+      devices: kitchenDeviceRepository,
+      staff: staffRepository,
+    }),
     sessionRepository,
     tableRepository,
   });

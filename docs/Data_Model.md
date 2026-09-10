@@ -63,12 +63,13 @@ model StaffUser {
 }
 
 model KitchenDevice {
-  id          String   @id @default(cuid())
-  label       String                       // e.g. "Dapur Utama"
-  tokenHash   String   @unique             // hashed device token
-  isActive    Boolean  @default(true)
-  lastSeenAt  DateTime?
-  createdAt   DateTime @default(now())
+  id           String   @id @default(cuid())
+  label        String                       // e.g. "Dapur Utama"
+  tokenHash    String   @unique             // hashed device token
+  tokenVersion Int      @default(1)         // bumped on rotate — revokes live sessions
+  isActive     Boolean  @default(true)
+  lastSeenAt   DateTime?
+  createdAt    DateTime @default(now())
 
   @@map("kitchen_devices")
 }
@@ -458,7 +459,9 @@ The seed (`pnpm db:seed`) must create, at minimum:
 - The four anchored `OrderStatusStage` rows (semantics + Indonesian labels + sortOrder 0–30).
 - The `SystemSettings` singleton row with restaurant defaults.
 - A handful of categories, menu items (with one item carrying a multi-group customization and one carrying an active promo), and 2–3 tables with generated tokens.
-- One `KitchenDevice`.
+- One `KitchenDevice` (the seed prints its id **and** token once; the real
+  provisioning path is Superadmin → Perangkat Dapur, which issues an
+  enrolment QR).
 
 This lets every downstream interface be exercised end-to-end immediately.
 

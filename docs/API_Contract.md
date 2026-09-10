@@ -102,11 +102,17 @@ The session token's lifetime tracks `SystemSettings.sessionTimeoutMins`, so a de
 session cannot outlive its token (Auth_RBAC_Spec §3).
 
 ### `POST /auth/kds/login`
-Public. Device token exchange for the kitchen display.
+Public. Device credential exchange for the kitchen display.
 ```
-req:  { deviceToken }
-res:  { sessionToken, device: { id, label } }
+req:  { deviceId, token }
+res:  { token, device: { id, label } }
 ```
+- The device JWT carries the device's `tokenVersion`. Every KDS request and
+  every socket handshake re-reads the device row, so deactivating or rotating
+  a device cuts it off at once: 403 `DEVICE_INACTIVE`, 401
+  `DEVICE_TOKEN_REVOKED` (hard rule 6).
+- A tablet normally never sees these fields — it enrols by scanning the
+  provisioning QR from §8, which carries them in the URL.
 
 ---
 
@@ -532,6 +538,28 @@ GET    /superadmin/staff/:id/activity               audit rows for that account
   `LAST_SUPERADMIN` (otherwise the restaurant locks itself out).
 - `activity` is paginated per §1.3, newest first; unknown account → 404
   `STAFF_NOT_FOUND`.
+
+### Kitchen devices (KDS enrolment — Auth_RBAC_Spec §4)
+```
+GET    /superadmin/kitchen-devices                    list
+POST   /superadmin/kitchen-devices                    { label }  → issues a device token
+POST   /superadmin/kitchen-devices/:id/active         { isActive }
+POST   /superadmin/kitchen-devices/:id/token/rotate   new token, kills the old sessions
+```
+- `POST` (create) and `token/rotate` return the credential bundle **exactly
+  once**: `{ device, token, provisioningUrl, qrDataUrl }`. Only a bcrypt hash
+  is stored; the plaintext is never retrievable again.
+- `provisioningUrl` is `<KDS_APP_URL>/?d=<deviceId>&t=<token>` and `qrDataUrl`
+  is a PNG data URI of it. The kitchen tablet scans the QR, exchanges the pair
+  via `POST /auth/kds/login`, and strips the credentials from its address bar
+  — nobody types a cuid in a working kitchen.
+- Deactivating takes effect on the device's **next request or handshake**
+  (403 `DEVICE_INACTIVE`); rotating bumps `tokenVersion`, so tokens minted
+  from the old credential fail with 401 `DEVICE_TOKEN_REVOKED`. A lost tablet
+  is handled by rotating, not by waiting out the 90-day token.
+- Unknown device → 404 `DEVICE_NOT_FOUND`. Every mutation writes an audit row
+  (`CREATE_KDS_DEVICE`, `DEACTIVATE_KDS_DEVICE`, `REACTIVATE_KDS_DEVICE`,
+  `ROTATE_KDS_DEVICE_TOKEN`, entityType `KITCHEN_DEVICE`) — hard rule 9.
 
 ### System settings (singleton)
 ```

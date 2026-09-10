@@ -85,12 +85,16 @@ Rules:
 
 ## 4. KDS device token
 
-`POST /auth/kds/login` exchanges a provisioned device token (created by Superadmin, hashed in `kitchen_devices`) for a session token scoped to kitchen actions.
+`POST /auth/kds/login` exchanges a provisioned device credential pair (`deviceId` + `token`, created by Superadmin and stored only as a bcrypt hash in `kitchen_devices`) for a session token scoped to kitchen actions.
 ```json
-{ "sub": "<deviceId>", "type": "kds_device", "iat": ..., "exp": <long> }
+{ "sub": "<deviceId>", "type": "kds", "ver": <tokenVersion>, "iat": ..., "exp": <long> }
 ```
 - Scope is fixed: only `/kds/*` endpoints and the `kds` socket room. Cannot approve orders, cannot touch payment, cannot read admin data.
-- Long-lived because it runs on a fixed tablet/monitor. Revocable by deactivating the device (`isActive=false`) — the guard checks device active state.
+- Long-lived (90d) because it runs on a fixed tablet/monitor. **Revocation does not wait for expiry:** every KDS request and every socket handshake re-reads the device row, exactly as staff requests re-read suspend status.
+  - `isActive = false` → 403 `DEVICE_INACTIVE`
+  - `ver` ≠ the row's `tokenVersion` (token rotated) → 401 `DEVICE_TOKEN_REVOKED`
+  - Tokens minted before `ver` existed no longer verify — those devices re-enrol.
+- **Provisioning** is Superadmin → Perangkat Dapur (`/superadmin/kitchen-devices`, API_Contract §8). Creating or rotating returns the plaintext token once, together with a QR of `<KDS_APP_URL>/?d=<deviceId>&t=<token>`. The tablet scans it, exchanges the pair, and clears the credentials from its address bar. A lost tablet is handled by rotating the token, not by waiting.
 - No personal staff account per cook (PRD 4.3).
 
 ---
@@ -100,7 +104,7 @@ Rules:
 ### 5.1 Guard placement
 A single Fastify `preHandler` runs on every protected route:
 1. Extract bearer token. Verify signature + expiry + `type`.
-2. For staff: check the suspended-user set (Redis). For KDS: check device active.
+2. For staff: check the suspended/mustReset status (read from the DB row, see §2.5). For KDS: check `isActive` **and** that the token's `ver` still matches `tokenVersion`.
 3. Load the route's required role/scope (declared on the route) and compare. Mismatch → 403.
 4. Attach the verified principal (`{ id, role|scope }`) to the request for handlers to use. Handlers read identity from here only.
 

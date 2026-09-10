@@ -23,6 +23,11 @@ const SECTIONS = [
     description: "Tambah, urutkan, dan nonaktifkan tahap alur dapur",
   },
   {
+    href: "/superadmin/devices",
+    label: "Perangkat Dapur",
+    description: "Daftarkan tablet KDS lewat QR, nonaktifkan, ganti token",
+  },
+  {
     href: "/superadmin/override",
     label: "Kendali Darurat",
     description: "Batalkan order, tutup paksa sesi meja",

@@ -1,13 +1,17 @@
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 import type { StaffRole } from "@malalabar/types";
-import { verifyStaffToken, TokenError } from "./tokens.js";
+import { verifyStaffToken, verifyKdsToken, TokenError } from "./tokens.js";
 import type { StaffClaims } from "./tokens.js";
 import type { StaffStatusChecker } from "./staff-status.js";
+import type { KitchenDeviceStatusChecker } from "./kitchen-device-status.js";
+import { checkKitchenDevice } from "./kitchen-device-status.js";
 
 declare module "fastify" {
   interface FastifyInstance {
     /** Injected at build time; the guard consults it on every staff request. */
     staffStatusChecker: StaffStatusChecker;
+    /** Same idea for kitchen devices — deactivate/rotate must bite at once. */
+    kitchenDeviceStatusChecker: KitchenDeviceStatusChecker;
   }
 }
 
@@ -107,5 +111,64 @@ export function requireStaffRole(
 
     (request as any).staffId = claims.sub;
     (request as any).staffRole = claims.role;
+  };
+}
+
+/**
+ * KDS device guard — Auth_RBAC_Spec §4.
+ *
+ * Verifies the device JWT, then re-reads the device row so a deactivated or
+ * rotated device loses access on its next request rather than when its
+ * 90-day token finally expires (hard rule 6).
+ */
+export function requireKdsDevice(): preHandlerHookHandler {
+  return async function kdsGuard(request, reply) {
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      void reply.status(401).send({
+        error: {
+          code: "UNAUTHORIZED",
+          message: "Missing or invalid authorization header",
+        },
+      });
+      return;
+    }
+
+    let claims;
+    try {
+      claims = verifyKdsToken(authHeader.slice(7));
+    } catch (err) {
+      if (err instanceof TokenError) {
+        void reply.status(401).send({
+          error: {
+            code: "UNAUTHORIZED",
+            message: "Invalid or expired device token",
+          },
+        });
+        return;
+      }
+
+      request.log.error(err);
+      void reply.status(500).send({
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "An unexpected error occurred",
+        },
+      });
+      return;
+    }
+
+    const verdict = await checkKitchenDevice(
+      request.server.kitchenDeviceStatusChecker,
+      claims,
+    );
+    if (!verdict.ok) {
+      void reply.status(verdict.statusCode).send({
+        error: { code: verdict.code, message: verdict.message },
+      });
+      return;
+    }
+
+    (request as unknown as { kdsDeviceId: string }).kdsDeviceId = claims.sub;
   };
 }

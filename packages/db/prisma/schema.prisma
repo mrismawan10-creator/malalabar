@@ -37,12 +37,16 @@ model StaffUser {
 }
 
 model KitchenDevice {
-  id         String    @id @default(cuid())
-  label      String
-  tokenHash  String    @unique
-  isActive   Boolean   @default(true)
-  lastSeenAt DateTime?
-  createdAt  DateTime  @default(now())
+  id        String @id @default(cuid())
+  label     String
+  tokenHash String @unique
+  /// Bumped on every token rotation. The KDS JWT carries it, so rotating a
+  /// device token invalidates the sessions minted from the old one at once
+  /// (CLAUDE.md hard rule 6, same pattern as RestaurantTable.tokenVersion).
+  tokenVersion Int       @default(1)
+  isActive     Boolean   @default(true)
+  lastSeenAt   DateTime?
+  createdAt    DateTime  @default(now())
 
   @@map("kitchen_devices")
 }

@@ -3,6 +3,18 @@
 One restaurant, four services. The three Next.js apps go to **Vercel**; the API
 goes to **Railway**.
 
+## Live
+
+| Service | URL |
+|---|---|
+| Customer | https://malalabar-customer.vercel.app |
+| Admin / cashier | https://malalabar-admin.vercel.app |
+| Kitchen display | https://malalabar-kds.vercel.app |
+| API | https://api-production-7ca4.up.railway.app |
+
+Verified end to end on 2026-09-10: a QR image pulled from the production API
+decodes to the customer domain, opens a session, and loads the menu and bill.
+
 ## Why the API is not on Vercel
 
 Vercel runs serverless functions that end when the request does. The API is a
@@ -146,3 +158,30 @@ pnpm --filter @malalabar/db exec prisma migrate resolve \
 ```
 
 A brand-new database does not need this.
+
+**Rotating `JWT_SECRET` invalidates every table QR.** Table tokens are
+`HMAC-SHA256(JWT_SECRET, nonce)` (`apps/api/src/lib/qr-token.ts`) — the secret
+signs them as well as the login tokens. Production was given fresh secrets, so
+every QR minted under the dev secret failed with `INVALID_TABLE_TOKEN` until
+the tokens were re-minted through the production API
+(`POST /admin/tables/:id/qr/regenerate`, or `pnpm --filter api qr:reissue` run
+with production env). Reprint after any secret rotation.
+
+**Dev and production currently share one Supabase database.** That is the next
+thing to fix. Two concrete consequences today: the migration baseline above had
+to be applied to the same database local development uses, and because the two
+environments now hold *different* `JWT_SECRET`s, a table token can only be
+valid for one of them at a time — regenerating a QR from the local admin UI
+breaks production, and vice versa. Give production its own Supabase project
+before the restaurant opens.
+
+**Railway injects `PORT`.** The app honours it (config.ts defaults to 4000 only
+when unset), so the generated domain must target the injected port — 8080 at
+time of writing. A mismatch shows up as a 502 "Application failed to respond"
+while the container logs happily report `Server listening`.
+
+**Vercel needs Root Directory set per project** (`apps/customer`,
+`apps/admin`, `apps/kds`) with "Include source files outside of the Root
+Directory" on. Deploying with `--cwd apps/<app>` uploads only that folder and
+the install fails with "Headless installation requires a pnpm-lock.yaml file";
+the deploy has to run from the repo root so the whole workspace is uploaded.

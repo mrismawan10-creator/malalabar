@@ -72,6 +72,10 @@ Staff token. Clears `mustReset`.
 req:  { currentPassword, newPassword }
 res:  { ok: true }
 ```
+Enforcement: an account with `mustReset=true` is blocked with 403
+`PASSWORD_RESET_REQUIRED` on every route outside `/auth/` until the password
+is changed; `newPassword` min 8 chars; wrong `currentPassword` → 401
+`INVALID_PASSWORD` (Auth_RBAC_Spec §2.1).
 
 ### `POST /sessions`  ← customer entry point (QR scan)
 Public. Validates table token, returns the open session for that table (creating one if none) plus a customer session token.
@@ -418,7 +422,8 @@ returns its QR — deactivation blocks the customer at `POST /sessions`, not the
 
 ## 7. Analytics & Reports  (role: ADMIN, also SUPERADMIN)
 
-All accept `?period=today|7d|this_month|last_month|custom&from=&to=`.
+All accept `?period=today|7d|this_month|last_month|custom&from=&to=` (default `7d`).
+Periods are **calendar days in Asia/Jakarta** (WIB); DB timestamps stay UTC (hard rule 10).
 
 ```
 GET /admin/analytics/summary
@@ -426,7 +431,7 @@ res: { totalRevenue, totalOrders, averageOrderValue,
        comparison: { revenueDelta, ordersDelta, aovDelta },   // vs previous period
        topItems: [ { name, quantitySold } ],                  // top 10
        revenueByCategory: [ { category, revenue } ],
-       revenueByHour: [ { hour, revenue } ],
+       revenueByHour: [ { hour, revenue } ],                  // always 24 rows, hour 0–23 WIB
        orderVolumeByDay: [ { date, count } ],
        paymentBreakdown: [ { method, count, amount } ] }
 
@@ -440,7 +445,70 @@ GET /admin/reports/:type?format=pdf|csv&period=...
      type ∈ sales-summary | order-history | menu-performance | payment-report
 res: file stream (Content-Type per format)
 ```
-Revenue counts only PAID sessions. Order counts exclude rejected (PRD 4.6.1).
+
+`/analytics/summary` semantics:
+
+- **Revenue metrics** (`totalRevenue`, `revenueByCategory`, `revenueByHour`,
+  `paymentBreakdown`) count only **PAID** payments, anchored on `paidAt`.
+- **Order metrics** (`totalOrders`, `topItems`, `orderVolumeByDay`) count all
+  **non-rejected** orders, anchored on `createdAt` (PRD 4.6.1 — "tidak termasuk
+  yang dibatalkan").
+- `revenueByCategory` sums item `lineTotal`s of non-rejected orders in PAID
+  sessions; items whose category no longer resolves bucket into `Lainnya` so
+  the breakdown always ties out. Tax/service are not attributed to categories.
+- `comparison` deltas are **percent change vs the previous period** (same shape
+  immediately before), rounded to 1 decimal; `null` when the previous period
+  is zero and the current is not.
+- `custom` requires both `from` and `to` (`YYYY-MM-DD` WIB, `to` inclusive,
+  `from ≤ to`); otherwise 422 `INVALID_PERIOD`. When `period ≠ custom`,
+  `from`/`to` are ignored.
+- `averageOrderValue` = `round(totalRevenue / totalOrders)`, 0 when no orders.
+
+`/analytics/orders` semantics (PRD 4.6.2):
+
+- Sorted newest first (`createdAt` desc). Pagination per §1.3
+  (`{ data, page, pageSize, total }`), default `page=1&pageSize=50` (max 100).
+- Filters, all optional and combined with AND:
+  - `from`/`to` — `YYYY-MM-DD` WIB, `to` inclusive, anchor `createdAt`; 422
+    `INVALID_PERIOD` when `from > to` or malformed. Omitted = unbounded.
+  - `method` — `CASH|CARD|ONLINE`; matches the session payment; orders without
+    a payment are excluded when set.
+  - `status` — a stage semantic key (`AWAITING_CONFIRMATION|ACCEPTED|
+    IN_PROGRESS|READY|SERVED|CUSTOM`) or `REJECTED`. Rejected batches are
+    excluded from stage-semantic filters (their stage is stale) and only
+    appear under `REJECTED`.
+  - `tableNumber` — exact match. `orderId` — exact match.
+- Rows carry `totalItems` (sum of quantities) and `totalPrice` (sum of frozen
+  `lineTotal`s) for the batch; `paymentMethod` is null until a payment exists.
+- Detail (`/analytics/orders/:id`) includes per-item customization snapshots,
+  frozen prices, and the `statusTimeline` (every `OrderStatusHistory` row,
+  oldest first, with actor and stage label). 404 `ORDER_NOT_FOUND` otherwise.
+
+`/reports/:type` semantics (PRD 4.6.3):
+
+- `type` ∈ `sales-summary | order-history | menu-performance | payment-report`;
+  `format` ∈ `pdf | csv` (default `pdf`); `period` as in `/analytics/summary`.
+  Response is a file stream: `application/pdf` or `text/csv; charset=utf-8`,
+  `Content-Disposition: attachment`, filename
+  `<type>-<fromWIB>_<toWIB>.<format>`.
+- **Order history is CSV-only** (PRD 4.6.3): requesting PDF returns 422
+  `UNSUPPORTED_FORMAT`. One row per order line — item name, customizations
+  with surcharges, frozen prices, order total, payment method/status, and a
+  joined `statusTimeline` (`label (date time); …`, WIB).
+- CSVs are RFC 4180 with a UTF-8 BOM and CRLF so Excel/Sheets open them
+  cleanly. PDFs carry the restaurant header + logo (best-effort), executive
+  summary boxes, bar charts, and tables.
+- **Sales Summary** — totalRevenue (PAID/`paidAt`), totalOrders (non-rejected/
+  `createdAt`), AOV, top-10 items, revenue per category, revenue per hour
+  (WIB), payment breakdown.
+- **Menu Performance** — every current menu item plus historical items that
+  sold: `quantitySold` (non-rejected/`createdAt`), `revenue` (PAID/`paidAt`),
+  `isAvailable`, and `daysOutOfStock` reconstructed from the
+  `SET_MENU_AVAILABILITY` audit trail — a WIB day counts when the item is
+  unavailable at its end; the pre-period state comes from the last toggle
+  before the period, falling back to the item's current availability.
+- **Payment Report** — per-method transaction count + total amount of PAID
+  payments (`paidAt`), plus a TOTAL row.
 
 ---
 
@@ -454,6 +522,16 @@ PATCH  /superadmin/staff/:id                        { name?, email?, role? }
 POST   /superadmin/staff/:id/suspend                { isSuspended }
 GET    /superadmin/staff/:id/activity               audit rows for that account
 ```
+- `POST` returns `tempPassword` **exactly once** (random 18+ chars, stored only
+  as a bcrypt cost-12 hash) and the account is created with `mustReset=true`.
+  Duplicate email → 409 `EMAIL_IN_USE`.
+- Suspension takes effect on the account's **next request** — every staff
+  request re-checks status server-side, so a suspended account's still-valid
+  JWT is rejected with 403 `ACCOUNT_SUSPENDED` immediately.
+- The last active SUPERADMIN cannot be suspended or demoted → 422
+  `LAST_SUPERADMIN` (otherwise the restaurant locks itself out).
+- `activity` is paginated per §1.3, newest first; unknown account → 404
+  `STAFF_NOT_FOUND`.
 
 ### System settings (singleton)
 ```
@@ -463,6 +541,18 @@ PATCH  /superadmin/settings   { restaurantName?, logoUrl?, description?, opening
                                 primaryColor?, sessionTimeoutMins?,
                                 cashEnabled?, cardEnabled?, onlineEnabled? }
 ```
+- The singleton row (`id = "singleton"`) is read through a Redis-cached
+  accessor (TTL 30s) invalidated on write (Data_Model §3.8); a lost
+  invalidation can leave a stale value for at most the TTL.
+- Validation: percents integer 0–100; `primaryColor` `#rrggbb`;
+  `sessionTimeoutMins` 1–1440; `openingHours` = array of
+  `{ day, open, close }` (`HH:MM`, null = closed) or null; `logoUrl` a valid
+  URL or null. Empty body → 400.
+- Effects are immediate: `enabledPaymentMethods` in the next `POST /sessions`
+  reflects toggled methods, and `POST /sessions/:id/payment {method}`
+  returns 422 `PAYMENT_METHOD_DISABLED` for a disabled method. Theme color
+  reaches the customer app via the boot settings.
+- Every change writes an `UPDATE_SETTINGS` audit row (hard rule 9).
 
 ### Order status stages (data-driven flow — PRD 4.7.3)
 ```
@@ -472,7 +562,26 @@ PATCH  /superadmin/stages/:id                        { label?, description? }
 POST   /superadmin/stages/reorder                    { orderedIds: string[] }  → anchored semantics must keep relative order (validated)
 POST   /superadmin/stages/:id/deactivate             { isActive }  → never hard-delete (history integrity)
 ```
-Validation: the four anchored semantics (AWAITING_CONFIRMATION → ACCEPTED → IN_PROGRESS → READY) must stay in that relative order; only CUSTOM stages move freely and only **between IN_PROGRESS and READY** in V1. Reject reorders that violate this (422). Detail in `State_Machine.md`.
+Validation: the anchored semantics (AWAITING_CONFIRMATION → ACCEPTED →
+IN_PROGRESS → READY → SERVED) must stay in that relative order; only CUSTOM
+stages move freely and only **between IN_PROGRESS and READY** in V1. Reject
+reorders that violate this (422). Detail in `State_Machine.md`.
+
+Implementation notes:
+- `POST` anchors the new CUSTOM stage to `afterStageId` (must be active and
+  semantically IN_PROGRESS or CUSTOM, else 422 `INVALID_STAGE_POSITION`);
+  the server assigns its `sortOrder` between neighbours. Chained CUSTOM
+  stages are allowed.
+- `reorder` takes **every** active stage id exactly once (422
+  `INVALID_STAGE_ORDER` otherwise), assigns `sortOrder = index * 10`, and
+  rejects anchor inversions with 422 `ANCHOR_ORDER_VIOLATED`.
+- Anchored stages can be **renamed** but never deactivated → 422
+  `ANCHORED_STAGE_PROTECTED` (the kitchen advance algorithm keys off them).
+  CUSTOM stages deactivate softly; orders sitting in a deactivated stage are
+  advanced over it by the existing sortOrder algorithm (State_Machine §1.3)
+  with no code change.
+- Every change is audited (`CREATE_STAGE`, `UPDATE_STAGE`, `REORDER_STAGES`,
+  `DEACTIVATE_STAGE`/`REACTIVATE_STAGE`).
 
 ### Override & emergency control (PRD 4.7.4)
 ```
@@ -480,6 +589,17 @@ POST   /superadmin/orders/:id/cancel                 { reason }  → reason requ
 POST   /superadmin/sessions/:id/force-close          { reason }  → frees the table, audited
 GET    /superadmin/audit-log?page=&from=&to=&actorId=&action=
 ```
+- **Cancel**: marks the order terminal via the `cancelled` flag + reason
+  (mirrors the reject flag — CANCELLED is not a stage). Guarded: unknown
+  order 404; already cancelled 409 `ORDER_ALREADY_CANCELLED`; cashier-rejected
+  409 `ORDER_ALREADY_REJECTED`; SERVED 409 `ORDER_ALREADY_SERVED`; empty
+  reason 422 `INVALID_REASON`. Emits `order:cancelled` to the session, KDS and
+  cashier rooms; cancelled batches leave the pending queue, the KDS board and
+  the bill/payment totals immediately.
+- **Force-close**: OPEN session → `CLOSED_FORCED` + reason + `closedAt`;
+  orders are preserved for reconciliation; the table is freed. Terminal
+  session 409 `SESSION_NOT_OPEN`. Emits `session:closed { reason: "FORCED" }`;
+  the session token dies with the status change (customer guard).
 
 ---
 

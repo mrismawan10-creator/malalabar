@@ -220,16 +220,20 @@ model TableSession {
 }
 
 model Order {
-  id             String    @id @default(cuid())
-  sessionId      String
-  batchNumber    Int
-  currentStageId String
-  rejected       Boolean   @default(false)
-  rejectReason   String?
-  approvedById   String?
-  acceptedAt     DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  sessionId       String
+  batchNumber     Int
+  currentStageId  String
+  rejected        Boolean   @default(false)
+  rejectReason    String?
+  // Superadmin override (PRD 4.7.4, State_Machine §1.2): terminal alongside
+  // rejected. Mirrors the reject-flag pattern — CANCELLED is not a stage.
+  cancelled       Boolean   @default(false)
+  cancelledReason String?
+  approvedById    String?
+  acceptedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   session       TableSession        @relation(fields: [sessionId], references: [id])
   currentStage  OrderStatusStage    @relation("OrderCurrentStage", fields: [currentStageId], references: [id])

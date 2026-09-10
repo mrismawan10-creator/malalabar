@@ -26,7 +26,7 @@ export function createPaymentService(deps: {
           status: true,
           table: { select: { number: true } },
           orders: {
-            where: { rejected: false },
+            where: { rejected: false, cancelled: false },
             select: {
               items: {
                 select: { lineTotal: true },

@@ -259,6 +259,8 @@ model Order {
   currentStageId String
   rejected      Boolean  @default(false)
   rejectReason  String?
+  cancelled     Boolean  @default(false)          // superadmin override (PRD 4.7.4); terminal, like rejected
+  cancelledReason String?
   approvedById  String?
   acceptedAt    DateTime?                          // when cashier approved (elapsed-time base for KDS)
   createdAt     DateTime @default(now())

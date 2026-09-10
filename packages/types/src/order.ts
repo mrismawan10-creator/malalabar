@@ -65,6 +65,9 @@ export interface CreateOrderResponse {
 export interface CustomerOrderSummary extends CustomerOrder {
   rejected: boolean;
   rejectReason: string | null;
+  /** Superadmin override (PRD 4.7.4) — terminal alongside rejected. */
+  cancelled: boolean;
+  cancelledReason: string | null;
 }
 
 export interface OrderListResponse {

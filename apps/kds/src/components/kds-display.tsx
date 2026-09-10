@@ -73,6 +73,11 @@ export function KdsDisplay() {
         playDing();
       });
 
+      // Superadmin cancelled the order — drop the card immediately.
+      socket.on("order:cancelled", (payload: any) => {
+        setOrders((prev) => prev.filter((o) => o.id !== payload.orderId));
+      });
+
       // Order status changed: update order in list
       socket.on("order:status", (payload: any) => {
         setOrders((prev) => {

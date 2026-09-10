@@ -223,6 +223,8 @@ export function createOrderService(deps: {
           currentStage: toStageInfo(row.currentStage),
           rejected: row.rejected,
           rejectReason: row.rejectReason,
+          cancelled: row.cancelled,
+          cancelledReason: row.cancelledReason,
           items: toOrderItems(row),
           createdAt: row.createdAt.toISOString(),
         })),
@@ -250,7 +252,7 @@ export function createOrderService(deps: {
       // schema has no cancelled flag today — only `rejected` — so whoever
       // implements cancel has to extend this filter, or cancelled orders will
       // silently keep billing.
-      const billable = rows.filter((row) => !row.rejected);
+      const billable = rows.filter((row) => !row.rejected && !row.cancelled);
 
       const lines = billable.flatMap((row) =>
         row.items.map((item) => ({

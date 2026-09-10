@@ -22,7 +22,7 @@ const TABLES = "/api/v1/admin/tables";
 const SESSIONS = "/api/v1/sessions";
 
 async function boot(
-  settings = createFakeSettingsRepository(),
+  settings: ReturnType<typeof createFakeSettingsRepository> = createFakeSettingsRepository(),
 ): Promise<FastifyInstance> {
   tables = createFakeTableRepository();
   sessions = createFakeSessionRepository();

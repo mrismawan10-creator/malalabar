@@ -40,6 +40,20 @@ import { createMidtransWebhookService } from "./services/midtrans-webhook.servic
 import { createMenuAdminService } from "./services/menu-admin.service.js";
 import { createPrismaMenuAdminRepository } from "./repositories/menu-admin.repository.js";
 import { createUploadService } from "./services/upload.service.js";
+import type { AnalyticsRepository } from "./repositories/analytics.repository.js";
+import { createPrismaAnalyticsRepository } from "./repositories/analytics.repository.js";
+import { createAnalyticsService } from "./services/analytics.service.js";
+import type { ReportsRepository } from "./repositories/reports.repository.js";
+import { createPrismaReportsRepository } from "./repositories/reports.repository.js";
+import { createReportService } from "./services/report.service.js";
+import { createStaffAdminService } from "./services/staff-admin.service.js";
+import { createSuperadminSettingsService } from "./services/superadmin-settings.service.js";
+import { createStageAdminService } from "./services/stage-admin.service.js";
+import { createSuperadminOverrideService } from "./services/superadmin-override.service.js";
+import type { StageRepository } from "./repositories/stage.repository.js";
+import { createPrismaStageRepository } from "./repositories/stage.repository.js";
+import type { StaffStatusChecker } from "./lib/staff-status.js";
+import { createStaffStatusChecker } from "./lib/staff-status.js";
 import { registerRoutes } from "./routes/index.js";
 
 export interface BuildAppOptions {
@@ -53,6 +67,11 @@ export interface BuildAppOptions {
   orderRepository?: OrderRepository;
   staffRepository?: StaffRepository;
   kitchenDeviceRepository?: KitchenDeviceRepository;
+  analyticsRepository?: AnalyticsRepository;
+  reportsRepository?: ReportsRepository;
+  /** Per-request suspend/mustReset check behind every staff guard. */
+  staffStatusChecker?: StaffStatusChecker;
+  stageRepository?: StageRepository;
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -109,6 +128,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
   // Socket.io shares this Fastify HTTP server (SDD_Core §3).
   await app.register(realtimePlugin, { verifyToken: options.verifyToken });
 
+  // Consulted by requireStaffRole on every staff request (Auth_RBAC_Spec
+  // §2.5); injectable so tests can flip suspend/mustReset without a DB.
+  app.decorate(
+    "staffStatusChecker",
+    options.staffStatusChecker ?? createStaffStatusChecker(),
+  );
+
   const needsPrisma =
     !options.tableRepository ||
     !options.sessionRepository ||
@@ -116,7 +142,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
     !options.menuRepository ||
     !options.orderRepository ||
     !options.staffRepository ||
-    !options.kitchenDeviceRepository;
+    !options.kitchenDeviceRepository ||
+    !options.analyticsRepository ||
+    !options.reportsRepository ||
+    !options.stageRepository;
   const prisma = needsPrisma ? getPrisma() : undefined;
 
   const tableRepository =
@@ -133,6 +162,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
     options.staffRepository ?? createPrismaStaffRepository(prisma!);
   const kitchenDeviceRepository =
     options.kitchenDeviceRepository ?? createPrismaKitchenDeviceRepository(prisma!);
+  const analyticsRepository =
+    options.analyticsRepository ?? createPrismaAnalyticsRepository(prisma!);
+  const reportsRepository =
+    options.reportsRepository ?? createPrismaReportsRepository(prisma!);
+  const stageRepository =
+    options.stageRepository ?? createPrismaStageRepository(prisma!);
 
   app.addHook("onClose", async () => {
     await Promise.all([disconnectRedis(), disconnectPrisma()]);
@@ -182,6 +217,21 @@ export async function buildApp(options: BuildAppOptions = {}) {
       validateImageUrl: (url) => uploadService.assertValidMenuImageUrl(url),
     }),
     uploadService,
+    analyticsService: createAnalyticsService({ repo: analyticsRepository }),
+    reportService: createReportService({
+      analytics: analyticsRepository,
+      reports: reportsRepository,
+      settings: settingsRepository,
+    }),
+    staffAdminService: createStaffAdminService({ repo: staffRepository }),
+    superadminSettingsService: createSuperadminSettingsService({
+      repo: settingsRepository,
+    }),
+    stageAdminService: createStageAdminService({ repo: stageRepository }),
+    overrideService: createSuperadminOverrideService({
+      prisma: prisma!,
+      gateway: app.gateway,
+    }),
     sessionRepository,
     tableRepository,
   });

@@ -7,6 +7,7 @@ const LINKS = [
   { href: "/cashier", label: "Kasir" },
   { href: "/menu", label: "Menu" },
   { href: "/tables", label: "Meja & QR" },
+  { href: "/analytics", label: "Laporan" },
 ];
 
 export function AdminNav({ onLogout }: { onLogout: () => void }) {

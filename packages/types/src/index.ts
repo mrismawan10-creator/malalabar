@@ -1,4 +1,5 @@
 export * from "./admin-menu.js";
+export * from "./analytics.js";
 export * from "./auth.js";
 export * from "./cashier.js";
 export * from "./error.js";
@@ -9,5 +10,7 @@ export * from "./pagination.js";
 export * from "./payment.js";
 export * from "./session.js";
 export * from "./staff.js";
+export * from "./settings.js";
+export * from "./stage.js";
 export * from "./table.js";
 export * from "./events.js";

@@ -38,7 +38,7 @@ links resolve.
 | Variable | Value |
 |---|---|
 | `NODE_ENV` | `production` |
-| `DATABASE_URL` | Supabase connection string |
+| `DATABASE_URL` | Supabase **session pooler** string — see below |
 | `REDIS_URL` | from the Redis service (`${{Redis.REDIS_URL}}`) |
 | `JWT_SECRET` | fresh 32+ byte random hex — **not** the dev value |
 | `JWT_REFRESH_SECRET` | fresh 32+ byte random hex, different again |
@@ -49,6 +49,20 @@ links resolve.
 | `MIDTRANS_IS_PRODUCTION` | `false` until the real launch |
 
 `PORT` is injected by Railway — do not set it.
+
+**Use the session pooler for `DATABASE_URL`.** Supabase's direct host,
+`db.<ref>.supabase.co`, resolves to an IPv6 address only, so it is unreachable
+from any network or platform that does not route IPv6 — the failure looks like
+a dead database (`Can't reach database server`) while the Supabase dashboard
+happily reports *Healthy*. Take the string from **Connect → Session pooler**:
+
+```
+postgresql://postgres.<ref>:<password>@aws-1-<region>.pooler.supabase.com:5432/postgres
+```
+
+Session mode (port 5432) is the one to use: a single URL serves both the app's
+queries and `prisma migrate deploy`. Transaction mode (6543) would need
+`?pgbouncer=true` plus a separate direct URL for migrations.
 
 `CUSTOMER_APP_URL` is refused at boot if it is still `http://localhost:3000`
 while `NODE_ENV=production` (`apps/api/src/config.ts`). That is deliberate: the

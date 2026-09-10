@@ -4,8 +4,10 @@
 # stays alive between requests, and the whole realtime layer (customer order
 # tracking, KDS cards, cashier notifications) depends on it.
 #
-# Build context is the REPO ROOT, not apps/api — pnpm workspace links have to
-# resolve. Railway is told where this file lives via railway.json.
+# It lives at the repo root for two reasons: the build context has to be the
+# root for pnpm workspace links to resolve, and Railway picks up a root
+# Dockerfile automatically — no builder config to keep in sync. (Railway's
+# railway.json is deprecated and was silently ignored in favour of Railpack.)
 FROM node:22-slim
 
 # Prisma's query engine links against OpenSSL; the slim image does not carry it.

@@ -123,7 +123,7 @@ Chicken-and-egg: Vercel domains are not known until the first deploy, and
 3. **Regenerate every QR.** Existing codes encode the laptop's LAN IP. In
    Admin → Meja & QR, hit Regenerate on each table, download the PDF, reprint.
    Old printed codes stop working the moment you regenerate (hard rule 6).
-4. **Midtrans webhook** → `https://<api>.up.railway.app/api/v1/payments/webhook`
+4. **Midtrans webhook** → `https://api-production-7ca4.up.railway.app/api/v1/webhooks/midtrans`
    in the Midtrans dashboard. Until this is set, online payments stay pending
    forever: the webhook is the source of truth, not the browser redirect
    (hard rule 8). This is the one flow that could never be tested locally.

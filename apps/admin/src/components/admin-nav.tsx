@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/cashier", label: "Kasir" },
   { href: "/menu", label: "Menu" },
+  { href: "/tables", label: "Meja & QR" },
 ];
 
 export function AdminNav({ onLogout }: { onLogout: () => void }) {

@@ -62,6 +62,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   await app.register(cors, {
     origin: config.CORS_ORIGINS.split(",").map((o) => o.trim()),
+    // Lets the admin app read the QR download filename cross-origin.
+    exposedHeaders: ["Content-Disposition"],
   });
 
   app.setNotFoundHandler((_req, reply) => {

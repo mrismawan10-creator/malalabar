@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import jwt from "jsonwebtoken";
 import type { FastifyInstance } from "fastify";
 import type {
   CreateSessionResponse,
   TableWithTokenResponse,
 } from "@malalabar/types";
 import { buildApp } from "../app.js";
+import { config } from "../config.js";
 import { mintTableToken } from "../lib/qr-token.js";
 import { verifyCustomerSessionToken } from "../lib/tokens.js";
 import { createFakeTableRepository } from "./fake-table-repository.js";
@@ -22,7 +24,7 @@ const TABLES = "/api/v1/admin/tables";
 const SESSIONS = "/api/v1/sessions";
 
 async function boot(
-  settings = createFakeSettingsRepository(),
+  settings: ReturnType<typeof createFakeSettingsRepository> = createFakeSettingsRepository(),
 ): Promise<FastifyInstance> {
   tables = createFakeTableRepository();
   sessions = createFakeSessionRepository();
@@ -30,16 +32,32 @@ async function boot(
     tableRepository: tables,
     sessionRepository: sessions,
     settingsRepository: settings,
+    // Per-request guard check; always clean in these tests.
+    staffStatusChecker: async () => ({ isSuspended: false, mustReset: false }),
   });
   await instance.ready();
   return instance;
 }
 
+/** ADMIN staff token — the table routes have been guarded since Slice 3/5. */
+const adminAuth = () => ({
+  authorization: `Bearer ${jwt.sign(
+    { type: "staff", role: "ADMIN", email: "admin@test.local" },
+    config.JWT_SECRET,
+    { subject: "staff-admin-1", algorithm: "HS256", expiresIn: 3600 },
+  )}`,
+});
+
 /** Creates a table through the admin API and hands back its live QR token. */
 async function seedTable(
   body: Record<string, unknown> = { number: "05", area: "Outdoor" },
 ): Promise<TableWithTokenResponse> {
-  const res = await app.inject({ method: "POST", url: TABLES, payload: body });
+  const res = await app.inject({
+    method: "POST",
+    url: TABLES,
+    payload: body,
+    headers: adminAuth(),
+  });
   return res.json<TableWithTokenResponse>();
 }
 
@@ -159,6 +177,7 @@ describe("POST /sessions — rejections", () => {
     await app.inject({
       method: "POST",
       url: `${TABLES}/${table.table.id}/qr/regenerate`,
+      headers: adminAuth(),
     });
 
     const res = await scan(table.qrToken);
@@ -174,6 +193,7 @@ describe("POST /sessions — rejections", () => {
       await app.inject({
         method: "POST",
         url: `${TABLES}/${table.table.id}/qr/regenerate`,
+        headers: adminAuth(),
       })
     ).json<TableWithTokenResponse>();
 
@@ -186,6 +206,7 @@ describe("POST /sessions — rejections", () => {
       method: "PATCH",
       url: `${TABLES}/${table.table.id}`,
       payload: { isActive: false },
+      headers: adminAuth(),
     });
 
     const res = await scan(table.qrToken);
@@ -201,6 +222,7 @@ describe("POST /sessions — rejections", () => {
       method: "PATCH",
       url: `${TABLES}/${table.table.id}`,
       payload: { isActive: false },
+      headers: adminAuth(),
     });
 
     await scan(table.qrToken);

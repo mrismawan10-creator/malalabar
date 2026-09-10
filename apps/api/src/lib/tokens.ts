@@ -29,6 +29,9 @@ export interface StaffClaims {
 export interface KdsClaims {
   sub: string;
   type: "kds";
+  /** Device `tokenVersion` at login. A rotated token bumps the column, so
+   *  tokens minted from the previous one stop verifying (hard rule 6). */
+  ver: number;
 }
 
 export class TokenError extends Error {
@@ -117,6 +120,19 @@ export function verifyStaffToken(token: string): StaffClaims {
   };
 }
 
+/** Long-lived: a kitchen tablet must not be re-enrolled every shift. Revocation
+ *  comes from the per-request device check, not from a short expiry. */
+export function signKdsToken(input: {
+  deviceId: string;
+  tokenVersion: number;
+}): string {
+  return jwt.sign({ type: "kds", ver: input.tokenVersion }, config.JWT_SECRET, {
+    subject: input.deviceId,
+    expiresIn: "90d",
+    algorithm: "HS256",
+  });
+}
+
 /** Verify KDS device token (from T3.2 login) */
 export function verifyKdsToken(token: string): KdsClaims {
   let decoded: unknown;
@@ -130,14 +146,18 @@ export function verifyKdsToken(token: string): KdsClaims {
     typeof decoded !== "object" ||
     decoded === null ||
     (decoded as { type?: unknown }).type !== "kds" ||
-    typeof (decoded as { sub?: unknown }).sub !== "string"
+    typeof (decoded as { sub?: unknown }).sub !== "string" ||
+    typeof (decoded as { ver?: unknown }).ver !== "number"
   ) {
+    // Pre-`ver` tokens fail here on purpose — they carry no revocation handle,
+    // so the device re-enrols rather than keeping an unrevocable session.
     throw new TokenError("Invalid or expired KDS token");
   }
 
-  const claims = decoded as { sub: string };
+  const claims = decoded as { sub: string; ver: number };
   return {
     sub: claims.sub,
     type: "kds",
+    ver: claims.ver,
   };
 }

@@ -1,7 +1,6 @@
 import { compare } from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { AppError } from "../lib/errors.js";
-import { config } from "../config.js";
+import { signKdsToken } from "../lib/tokens.js";
 import type { KitchenDeviceRepository } from "../repositories/kitchen-device.repository.js";
 
 export interface KitchenDeviceAuthResponse {
@@ -47,15 +46,12 @@ export function createKitchenDeviceAuthService(deps: {
       // Update last seen
       await deps.kitchenDevice.updateLastSeen(deviceId);
 
-      // Generate JWT token
-      const token = jwt.sign(
-        {
-          sub: device.id,
-          type: "kds",
-        },
-        config.JWT_SECRET,
-        { expiresIn: "90d", algorithm: "HS256" },
-      );
+      // Carries the device's current tokenVersion, so a later rotation
+      // invalidates this session at once (hard rule 6).
+      const token = signKdsToken({
+        deviceId: device.id,
+        tokenVersion: device.tokenVersion,
+      });
 
       return {
         token,

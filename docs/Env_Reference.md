@@ -29,6 +29,7 @@ Every environment variable the system needs, grouped by service. Rules: secrets 
 | `CLOUDINARY_URL` | `cloudinary://key:secret@cloud` | Signed uploads + CDN |
 | `CORS_ORIGINS` | `https://order.x,https://admin.x,https://kds.x` | Comma-separated allowed origins; no wildcard in prod |
 | `CUSTOMER_APP_URL` | `https://order.x` | Public origin of the customer app. QR codes encode `<this>/order?t=<token>` (PRD 4.1.2). Defaults to `http://localhost:3000` in dev; **startup fails in production if left at the default** — a wrong value ships as unscannable printed cards |
+| `KDS_APP_URL` | `https://kds.x` | Public origin of the kitchen display app. Enrolment QRs encode `<this>/?d=<deviceId>&t=<token>` (Auth_RBAC_Spec §4). Defaults to `http://localhost:3002` in dev; **startup fails in production if left at the default** — a wrong value makes every enrolment QR dead |
 | `SESSION_TIMEOUT_DEFAULT_MINS` | `90` | Fallback if SystemSettings unset |
 | `RECONCILE_PENDING_AFTER_MINS` | `15` | Age before the Midtrans reconciliation sweep checks a PENDING online payment |
 

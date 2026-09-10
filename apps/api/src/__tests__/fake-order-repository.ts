@@ -91,6 +91,8 @@ export function createFakeOrderRepository(options: {
   saved(): SavedOrder[];
   /** Marks a stored batch rejected, as the cashier would (T3.3). */
   reject(batchNumber: number, reason: string): void;
+  /** Marks a stored batch cancelled, as the superadmin override would (T7.4). */
+  cancel(batchNumber: number, reason: string): void;
   history(): Array<{ orderId: string; stageId: string; actorType: string }>;
   sessionTouched(): string[];
   /** Runs before each persist — used to simulate a batch-number race. */
@@ -150,6 +152,14 @@ export function createFakeOrderRepository(options: {
       row.rejectReason = reason;
     },
 
+    /** Test hook: mark a stored batch cancelled, as the override would (T7.4). */
+    cancel(batchNumber: number, reason: string) {
+      const row = persisted.find((r) => r.batchNumber === batchNumber);
+      if (!row) throw new Error(`no such batch ${batchNumber}`);
+      row.cancelled = true;
+      row.cancelledReason = reason;
+    },
+
     async persistOrder(input: PersistOrderInput): Promise<PersistedOrderRow> {
       repo.onBeforePersist?.(input);
 
@@ -191,6 +201,8 @@ export function createFakeOrderRepository(options: {
         ...row,
         sessionId: input.sessionId,
         rejected: false,
+        cancelled: false,
+        cancelledReason: null,
         rejectReason: null,
         currentStage: stage ?? AWAITING,
       });

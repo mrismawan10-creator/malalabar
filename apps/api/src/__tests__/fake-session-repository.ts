@@ -77,7 +77,9 @@ export function createFakeSessionRepository(): SessionRepository & {
 
 export function createFakeSettingsRepository(
   overrides: Partial<SystemSettings> = {},
-): SettingsRepository {
+): SettingsRepository & {
+  audits(): Array<{ action: string; metadata: unknown; actorId: string }>;
+} {
   const settings: SystemSettings = {
     id: "singleton",
     restaurantName: "Malalabar",
@@ -96,10 +98,45 @@ export function createFakeSettingsRepository(
     updatedAt: new Date(),
     ...overrides,
   };
+  const auditRows: Array<{
+    action: string;
+    metadata: unknown;
+    actorId: string;
+  }> = [];
 
-  return { async get() { return settings; } };
+  return {
+    async get() {
+      return settings;
+    },
+    async update(data) {
+      Object.assign(settings, data);
+      settings.updatedAt = new Date();
+      return settings;
+    },
+    async writeAudit(input) {
+      auditRows.push({
+        action: input.action,
+        metadata: input.metadata,
+        actorId: input.actorId,
+      });
+    },
+    audits: () => [...auditRows],
+  };
 }
 
-export function createMissingSettingsRepository(): SettingsRepository {
-  return { async get() { return null; } };
+export function createMissingSettingsRepository(): SettingsRepository & {
+  audits(): Array<{ action: string; metadata: unknown; actorId: string }>;
+} {
+  return {
+    async get() {
+      return null;
+    },
+    async update() {
+      throw new Error("settings missing");
+    },
+    async writeAudit() {
+      /* no-op */
+    },
+    audits: () => [],
+  };
 }

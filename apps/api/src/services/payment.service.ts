@@ -26,7 +26,7 @@ export function createPaymentService(deps: {
           status: true,
           table: { select: { number: true } },
           orders: {
-            where: { rejected: false },
+            where: { rejected: false, cancelled: false },
             select: {
               items: {
                 select: { lineTotal: true },
@@ -97,6 +97,13 @@ export function createPaymentService(deps: {
           422,
         );
       }
+
+      // Payment initiation counts as activity for the timeout sweep
+      // (State_Machine §2: lastActivityAt updates on order submit and here).
+      await prisma.tableSession.update({
+        where: { id: sessionId },
+        data: { lastActivityAt: new Date() },
+      });
 
       // Calculate bill (T4.1 — Bill freeze)
       const subtotal = session.orders.reduce(

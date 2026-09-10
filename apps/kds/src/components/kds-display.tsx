@@ -6,11 +6,36 @@ import { config } from "@/config";
 import { OrderCard } from "./order-card";
 import { ConnectionStatus } from "./connection-status";
 
+/**
+ * Exchanges device credentials for a device JWT (Auth_RBAC_Spec §4).
+ *
+ * Used both by the manual form and by the provisioning QR, so an enrolled
+ * tablet reaches the same state either way.
+ */
+async function exchangeCredentials(
+  deviceId: string,
+  token: string,
+): Promise<string> {
+  const res = await fetch(`${config.apiBaseUrl}/api/v1/auth/kitchen/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceId, token }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error?.message ?? "Login failed");
+  }
+  return data.token as string;
+}
+
 export function KdsDisplay() {
   const [orders, setOrders] = useState<KdsOrderCard[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [deviceToken, setDeviceToken] = useState<string>("");
+  const [booting, setBooting] = useState(true);
+  const [enrolError, setEnrolError] = useState("");
   const socketRef = useRef<any>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const dingTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
@@ -36,6 +61,15 @@ export function KdsDisplay() {
       if (res.ok) {
         const data = await res.json();
         setOrders(data.orders);
+        return;
+      }
+      // Superadmin deactivated or rotated this device — the stored session is
+      // dead, so drop to the enrolment screen instead of showing a stale board.
+      if (res.status === 401 || res.status === 403) {
+        const data = await res.json().catch(() => null);
+        setDeviceToken("");
+        localStorage.removeItem("kds_device_token");
+        setEnrolError(data?.error?.message ?? "Perangkat tidak lagi berwenang");
       }
     } catch (err) {
       console.error("Failed to fetch orders:", err);
@@ -65,12 +99,21 @@ export function KdsDisplay() {
 
       socket.on("connect_error", () => {
         setIsReconnecting(true);
+        // The handshake gives no reason for the refusal. Ask HTTP: a revoked
+        // device gets 401/403 and fetchOrders drops us to the enrolment
+        // screen, while a plain network blip just fails and we keep retrying.
+        void fetchOrders();
       });
 
       // Order approved: add to list + ding
       socket.on("order:approved", (payload: any) => {
         fetchOrders();
         playDing();
+      });
+
+      // Superadmin cancelled the order — drop the card immediately.
+      socket.on("order:cancelled", (payload: any) => {
+        setOrders((prev) => prev.filter((o) => o.id !== payload.orderId));
       });
 
       // Order status changed: update order in list
@@ -159,16 +202,50 @@ export function KdsDisplay() {
     setIsConnected(false);
   };
 
-  // Load token from storage on mount
+  // Enrol from the provisioning QR (`?d=<deviceId>&t=<token>`) if one brought
+  // us here, otherwise resume the stored session.
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const provisionedId = params.get("d");
+    const provisionedToken = params.get("t");
+
+    if (provisionedId && provisionedToken) {
+      // Drop the credentials from the address bar before they can be read out
+      // of history, a screenshot, or a shoulder.
+      window.history.replaceState(null, "", window.location.pathname);
+      void (async () => {
+        try {
+          const token = await exchangeCredentials(provisionedId, provisionedToken);
+          setDeviceToken(token);
+          localStorage.setItem("kds_device_token", token);
+        } catch (err) {
+          setEnrolError(
+            err instanceof Error ? err.message : "Gagal mendaftarkan perangkat",
+          );
+        } finally {
+          setBooting(false);
+        }
+      })();
+      return;
+    }
+
     const savedToken = localStorage.getItem("kds_device_token");
     if (savedToken) {
       setDeviceToken(savedToken);
     }
+    setBooting(false);
   }, []);
 
+  if (booting) {
+    return (
+      <div className="h-screen bg-slate-900 flex items-center justify-center text-slate-400">
+        <p>Menyiapkan perangkat…</p>
+      </div>
+    );
+  }
+
   if (!deviceToken) {
-    return <LoginForm onLogin={handleLogin} />;
+    return <LoginForm onLogin={handleLogin} initialError={enrolError} />;
   }
 
   return (
@@ -219,11 +296,17 @@ export function KdsDisplay() {
 }
 
 // Login form component
-function LoginForm({ onLogin }: { onLogin: (token: string) => void }) {
+function LoginForm({
+  onLogin,
+  initialError = "",
+}: {
+  onLogin: (token: string) => void;
+  initialError?: string;
+}) {
   const [deviceId, setDeviceId] = useState("");
   const [token, setToken] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialError);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -231,22 +314,9 @@ function LoginForm({ onLogin }: { onLogin: (token: string) => void }) {
     setError("");
 
     try {
-      const res = await fetch(`${config.apiBaseUrl}/api/v1/auth/kitchen/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deviceId, token }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        setError(data.error?.message || "Login failed");
-        return;
-      }
-
-      const data = await res.json();
-      onLogin(data.token);
+      onLogin(await exchangeCredentials(deviceId, token));
     } catch (err) {
-      setError("Failed to connect to server");
+      setError(err instanceof Error ? err.message : "Failed to connect to server");
     } finally {
       setLoading(false);
     }
@@ -256,7 +326,9 @@ function LoginForm({ onLogin }: { onLogin: (token: string) => void }) {
     <div className="h-screen bg-slate-900 flex items-center justify-center p-4">
       <div className="bg-slate-950 border border-slate-700 rounded-xl p-8 max-w-md w-full">
         <h1 className="text-2xl font-bold text-white mb-2">KDS Login</h1>
-        <p className="text-slate-400 mb-6">Kitchen Display System</p>
+        <p className="text-slate-400 mb-6">
+          Scan QR pendaftaran dari halaman Superadmin, atau isi manual di bawah.
+        </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

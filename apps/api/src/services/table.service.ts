@@ -49,6 +49,12 @@ const takenError = (number: string, area: string | null) =>
     409,
   );
 
+/** Identity of the acting staff member, for audit rows (hard rule 9). */
+export interface TableActor {
+  staffId: string;
+  ipAddress?: string;
+}
+
 export interface TableService {
   list(params: { page: number; pageSize: number }): Promise<{
     data: AdminTable[];
@@ -56,15 +62,19 @@ export interface TableService {
     pageSize: number;
     total: number;
   }>;
-  create(input: {
-    number: string;
-    area?: string | null;
-  }): Promise<TableWithTokenResponse>;
+  create(
+    input: {
+      number: string;
+      area?: string | null;
+    },
+    actor: TableActor,
+  ): Promise<TableWithTokenResponse>;
   update(
     id: string,
     patch: { number?: string; area?: string | null; isActive?: boolean },
+    actor: TableActor,
   ): Promise<AdminTable>;
-  regenerateQr(id: string): Promise<TableWithTokenResponse>;
+  regenerateQr(id: string, actor: TableActor): Promise<TableWithTokenResponse>;
   getQrArtifact(id: string, format: QrFormat): Promise<QrArtifact>;
 }
 
@@ -81,13 +91,29 @@ export function createTableService(repo: TableRepository): TableService {
     return row;
   }
 
+  async function audit(
+    actor: TableActor,
+    action: string,
+    entityId: string,
+    metadata: Record<string, unknown> = {},
+  ) {
+    await repo.writeAudit({
+      actorId: actor.staffId,
+      action,
+      entityType: "TABLE",
+      entityId,
+      metadata: JSON.parse(JSON.stringify(metadata)),
+      ipAddress: actor.ipAddress,
+    });
+  }
+
   return {
     async list({ page, pageSize }) {
       const { rows, total } = await repo.list({ page, pageSize });
       return { data: rows.map(toDto), page, pageSize, total };
     },
 
-    async create(input) {
+    async create(input, actor) {
       const number = input.number.trim();
       const area = normalizeArea(input.area);
 
@@ -104,6 +130,7 @@ export function createTableService(repo: TableRepository): TableService {
           area,
           qrToken: mintTableToken(),
         });
+        await audit(actor, "CREATE_TABLE", row.id, { number, area });
         return { table: toDto(row), qrToken: row.qrToken };
       } catch (err) {
         if (isUniqueViolation(err)) throw takenError(number, area);
@@ -111,7 +138,7 @@ export function createTableService(repo: TableRepository): TableService {
       }
     },
 
-    async update(id, patch) {
+    async update(id, patch, actor) {
       const current = await getOr404(id);
 
       const number = patch.number?.trim() ?? current.number;
@@ -132,6 +159,7 @@ export function createTableService(repo: TableRepository): TableService {
           ...(patch.area !== undefined ? { area } : {}),
           ...(patch.isActive !== undefined ? { isActive: patch.isActive } : {}),
         });
+        await audit(actor, "UPDATE_TABLE", id, { changes: patch });
         return toDto(row);
       } catch (err) {
         if (isUniqueViolation(err)) throw takenError(number, area);
@@ -139,12 +167,15 @@ export function createTableService(repo: TableRepository): TableService {
       }
     },
 
-    async regenerateQr(id) {
+    async regenerateQr(id, actor) {
       await getOr404(id);
       // Rotation IS revocation: the old value stops resolving the moment this
       // write lands (CLAUDE.md hard rule 6). Open sessions are unaffected —
       // they already hold a session token (Auth_RBAC_Spec §3.1).
       const row = await repo.rotateToken(id, mintTableToken());
+      await audit(actor, "REGENERATE_TABLE_QR", id, {
+        tokenVersion: row.tokenVersion,
+      });
       return { table: toDto(row), qrToken: row.qrToken };
     },
 

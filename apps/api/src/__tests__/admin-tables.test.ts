@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { AdminTable, TableWithTokenResponse } from "@malalabar/types";
+import jwt from "jsonwebtoken";
 import { buildApp } from "../app.js";
+import { config } from "../config.js";
 import { hasValidTableTokenSignature } from "../lib/qr-token.js";
 import { createFakeTableRepository } from "./fake-table-repository.js";
 
@@ -10,9 +12,23 @@ let repo: ReturnType<typeof createFakeTableRepository>;
 
 const BASE = "/api/v1/admin/tables";
 
+/** ADMIN staff token — these routes have been guarded since Slice 3/5. */
+const adminAuth = () => ({
+  authorization: `Bearer ${jwt.sign(
+    { type: "staff", role: "ADMIN", email: "admin@test.local" },
+    config.JWT_SECRET,
+    { subject: "staff-admin-1", algorithm: "HS256", expiresIn: 3600 },
+  )}`,
+});
+
+
 beforeEach(async () => {
   repo = createFakeTableRepository();
-  app = await buildApp({ tableRepository: repo });
+  app = await buildApp({
+    tableRepository: repo,
+    // Per-request guard check; always clean in these tests.
+    staffStatusChecker: async () => ({ isSuspended: false, mustReset: false }),
+  });
   await app.ready();
 });
 
@@ -21,7 +37,7 @@ afterEach(async () => {
 });
 
 async function createTable(body: Record<string, unknown>) {
-  return app.inject({ method: "POST", url: BASE, payload: body });
+  return app.inject({ headers: adminAuth(), method: "POST", url: BASE, payload: body });
 }
 
 describe("POST /admin/tables", () => {
@@ -97,6 +113,7 @@ describe("GET /admin/tables", () => {
     await createTable({ number: "02" });
 
     const res = await app.inject({
+      headers: adminAuth(),
       method: "GET",
       url: `${BASE}?page=1&pageSize=1`,
     });
@@ -118,7 +135,7 @@ describe("GET /admin/tables", () => {
       await createTable({ number: "01" })
     ).json<TableWithTokenResponse>();
 
-    const res = await app.inject({ method: "GET", url: BASE });
+    const res = await app.inject({ headers: adminAuth(), method: "GET", url: BASE });
     expect(res.body).not.toContain(created.qrToken);
   });
 });
@@ -130,6 +147,7 @@ describe("PATCH /admin/tables/:id", () => {
     ).json<TableWithTokenResponse>();
 
     const res = await app.inject({
+      headers: adminAuth(),
       method: "PATCH",
       url: `${BASE}/${created.table.id}`,
       payload: { isActive: false },
@@ -145,6 +163,7 @@ describe("PATCH /admin/tables/:id", () => {
     ).json<TableWithTokenResponse>();
 
     await app.inject({
+      headers: adminAuth(),
       method: "PATCH",
       url: `${BASE}/${created.table.id}`,
       payload: { number: "06" },
@@ -157,6 +176,7 @@ describe("PATCH /admin/tables/:id", () => {
 
   it("returns 404 for an unknown id (failure path)", async () => {
     const res = await app.inject({
+      headers: adminAuth(),
       method: "PATCH",
       url: `${BASE}/nope`,
       payload: { isActive: false },
@@ -174,6 +194,7 @@ describe("PATCH /admin/tables/:id", () => {
     ).json<TableWithTokenResponse>();
 
     const res = await app.inject({
+      headers: adminAuth(),
       method: "PATCH",
       url: `${BASE}/${second.table.id}`,
       payload: { number: "01" },
@@ -187,6 +208,7 @@ describe("PATCH /admin/tables/:id", () => {
     ).json<TableWithTokenResponse>();
 
     const res = await app.inject({
+      headers: adminAuth(),
       method: "PATCH",
       url: `${BASE}/${created.table.id}`,
       payload: {},
@@ -202,6 +224,7 @@ describe("POST /admin/tables/:id/qr/regenerate", () => {
     ).json<TableWithTokenResponse>();
 
     const res = await app.inject({
+      headers: adminAuth(),
       method: "POST",
       url: `${BASE}/${created.table.id}/qr/regenerate`,
     });
@@ -219,6 +242,7 @@ describe("POST /admin/tables/:id/qr/regenerate", () => {
     ).json<TableWithTokenResponse>();
 
     await app.inject({
+      headers: adminAuth(),
       method: "POST",
       url: `${BASE}/${created.table.id}/qr/regenerate`,
     });
@@ -233,6 +257,7 @@ describe("POST /admin/tables/:id/qr/regenerate", () => {
 
   it("returns 404 for an unknown id (failure path)", async () => {
     const res = await app.inject({
+      headers: adminAuth(),
       method: "POST",
       url: `${BASE}/nope/qr/regenerate`,
     });

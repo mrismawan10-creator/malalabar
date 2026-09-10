@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
 import { config } from "../config.js";
 import { RealtimeGateway } from "./gateway.js";
+import type { KitchenDeviceStatusChecker } from "../lib/kitchen-device-status.js";
 import { createSocketTokenVerifier } from "./verify-token.js";
 import type { SocketTokenVerifier } from "./verify-token.js";
 
@@ -18,6 +19,8 @@ declare module "fastify" {
 interface RealtimeOptions {
   /** Override the handshake verifier (tests, and the real JWT verifier later). */
   verifyToken?: SocketTokenVerifier;
+  /** Re-checks the kitchen device row on every KDS handshake (hard rule 6). */
+  kitchenDeviceStatus?: KitchenDeviceStatusChecker;
 }
 
 const realtime: FastifyPluginAsync<RealtimeOptions> = async (app, opts) => {
@@ -25,7 +28,9 @@ const realtime: FastifyPluginAsync<RealtimeOptions> = async (app, opts) => {
     corsOrigins: config.CORS_ORIGINS.split(",").map((o) => o.trim()),
     // Customer tokens are verified for real; staff/KDS remain stubbed until
     // T3.1 / T3.2 — see verify-token.ts.
-    verifyToken: opts.verifyToken ?? createSocketTokenVerifier(config.NODE_ENV),
+    verifyToken:
+      opts.verifyToken ??
+      createSocketTokenVerifier(config.NODE_ENV, opts.kitchenDeviceStatus),
     onError: (err) => app.log.error(err),
   });
 

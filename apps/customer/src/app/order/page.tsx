@@ -7,6 +7,7 @@ import type {
   MenuItemDetail,
   MenuItemSummary,
   MenuResponse,
+  OrderCancelledPayload,
   OrderRejectedPayload,
   PaymentMethod,
 } from "@malalabar/types";
@@ -241,10 +242,18 @@ function OrderScreen() {
       );
       void refreshBill().catch(() => {});
     };
+    const onCancelled = (payload: OrderCancelledPayload) => {
+      setRejectedNotice(
+        `Pesanan #${payload.orderId.slice(-6)} dibatalkan restoran: ${payload.reason}`,
+      );
+      void refreshBill().catch(() => {});
+    };
     socket.on("order:rejected", onRejected);
+    socket.on("order:cancelled", onCancelled);
     socket.on("session:closed", onPaid);
     return () => {
       socket.off("order:rejected", onRejected);
+      socket.off("order:cancelled", onCancelled);
       socket.off("session:closed", onPaid);
     };
   }, [socket, active, refreshBill, onPaid]);

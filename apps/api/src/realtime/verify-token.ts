@@ -5,6 +5,9 @@ import {
   verifyKdsToken,
   TokenError,
 } from "../lib/tokens.js";
+import type { KitchenDeviceStatusChecker } from "../lib/kitchen-device-status.js";
+import { checkKitchenDevice } from "../lib/kitchen-device-status.js";
+import type { KdsClaims } from "../lib/tokens.js";
 import type { SocketPrincipal } from "./principal.js";
 
 /**
@@ -33,13 +36,18 @@ function isStaffRole(value: string): value is StaffRole {
  *
  * The principal decides the rooms, so a customer socket can only ever land in
  * its own `session:{sub}` (Auth_RBAC_Spec §3).
+ *
+ * `deviceStatus`, when supplied, re-checks the kitchen device row on every
+ * handshake — otherwise a deactivated tablet could keep its socket open (and
+ * reconnect) until its 90-day token expired, while HTTP already refused it.
  */
 export function createSocketTokenVerifier(
   nodeEnv: string,
+  deviceStatus?: KitchenDeviceStatusChecker,
 ): SocketTokenVerifier {
   const stub = createStubTokenVerifier(nodeEnv);
 
-  return (token: string): SocketPrincipal | null => {
+  return async (token: string): Promise<SocketPrincipal | null> => {
     try {
       const claims = verifyCustomerSessionToken(token);
       return {
@@ -62,14 +70,21 @@ export function createSocketTokenVerifier(
       // Not a staff token — try KDS
     }
 
+    let kdsClaims: KdsClaims | null = null;
     try {
-      const claims = verifyKdsToken(token);
-      return {
-        type: "kds_device",
-        deviceId: claims.sub,
-      };
+      kdsClaims = verifyKdsToken(token);
     } catch {
       // Not a real token — may still be a dev one
+    }
+
+    // Outside the try: a failed device lookup must reject the handshake, not
+    // fall through to the dev stub.
+    if (kdsClaims) {
+      if (deviceStatus) {
+        const verdict = await checkKitchenDevice(deviceStatus, kdsClaims);
+        if (!verdict.ok) return null;
+      }
+      return { type: "kds_device", deviceId: kdsClaims.sub };
     }
 
     return stub(token) as SocketPrincipal | null;

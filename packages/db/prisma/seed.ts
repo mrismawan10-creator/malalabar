@@ -110,14 +110,16 @@ async function main() {
   });
   if (!existingDevice) {
     const deviceToken = generateToken();
-    await prisma.kitchenDevice.create({
+    const device = await prisma.kitchenDevice.create({
       data: {
         label: "Dapur Utama",
         tokenHash: await hash(deviceToken, 10),
         isActive: true,
       },
     });
-    console.log(`✓ KitchenDevice  →  token: ${deviceToken}`);
+    // Both halves, once: the seed is a dev shortcut for the real path, which
+    // is Superadmin → Perangkat Dapur (enrolment QR).
+    console.log(`✓ KitchenDevice  →  id: ${device.id}  /  token: ${deviceToken}`);
   } else {
     console.log("✓ KitchenDevice (already exists)");
   }

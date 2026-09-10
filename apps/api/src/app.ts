@@ -40,6 +40,25 @@ import { createMidtransWebhookService } from "./services/midtrans-webhook.servic
 import { createMenuAdminService } from "./services/menu-admin.service.js";
 import { createPrismaMenuAdminRepository } from "./repositories/menu-admin.repository.js";
 import { createUploadService } from "./services/upload.service.js";
+import type { AnalyticsRepository } from "./repositories/analytics.repository.js";
+import { createPrismaAnalyticsRepository } from "./repositories/analytics.repository.js";
+import { createAnalyticsService } from "./services/analytics.service.js";
+import type { ReportsRepository } from "./repositories/reports.repository.js";
+import { createPrismaReportsRepository } from "./repositories/reports.repository.js";
+import { createReportService } from "./services/report.service.js";
+import { createStaffAdminService } from "./services/staff-admin.service.js";
+import { createSuperadminSettingsService } from "./services/superadmin-settings.service.js";
+import { createStageAdminService } from "./services/stage-admin.service.js";
+import { createSuperadminOverrideService } from "./services/superadmin-override.service.js";
+import { createSuperadminAuditService } from "./services/superadmin-audit.service.js";
+import { createSessionSweepService } from "./services/session-sweep.service.js";
+import type { StageRepository } from "./repositories/stage.repository.js";
+import { createPrismaStageRepository } from "./repositories/stage.repository.js";
+import type { StaffStatusChecker } from "./lib/staff-status.js";
+import { createStaffStatusChecker } from "./lib/staff-status.js";
+import type { KitchenDeviceStatusChecker } from "./lib/kitchen-device-status.js";
+import { createKitchenDeviceStatusChecker } from "./lib/kitchen-device-status.js";
+import { createKitchenDeviceAdminService } from "./services/kitchen-device-admin.service.js";
 import { registerRoutes } from "./routes/index.js";
 
 export interface BuildAppOptions {
@@ -53,6 +72,13 @@ export interface BuildAppOptions {
   orderRepository?: OrderRepository;
   staffRepository?: StaffRepository;
   kitchenDeviceRepository?: KitchenDeviceRepository;
+  analyticsRepository?: AnalyticsRepository;
+  reportsRepository?: ReportsRepository;
+  /** Per-request suspend/mustReset check behind every staff guard. */
+  staffStatusChecker?: StaffStatusChecker;
+  /** Per-request active/tokenVersion check behind every KDS guard. */
+  kitchenDeviceStatusChecker?: KitchenDeviceStatusChecker;
+  stageRepository?: StageRepository;
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -106,8 +132,24 @@ export async function buildApp(options: BuildAppOptions = {}) {
     } satisfies ApiError);
   });
 
+  // Consulted by requireStaffRole on every staff request (Auth_RBAC_Spec
+  // §2.5); injectable so tests can flip suspend/mustReset without a DB.
+  app.decorate(
+    "staffStatusChecker",
+    options.staffStatusChecker ?? createStaffStatusChecker(),
+  );
+
+  // Same for kitchen devices — deactivate/rotate must bite on the next
+  // request and the next handshake alike (hard rule 6).
+  const kitchenDeviceStatusChecker =
+    options.kitchenDeviceStatusChecker ?? createKitchenDeviceStatusChecker();
+  app.decorate("kitchenDeviceStatusChecker", kitchenDeviceStatusChecker);
+
   // Socket.io shares this Fastify HTTP server (SDD_Core §3).
-  await app.register(realtimePlugin, { verifyToken: options.verifyToken });
+  await app.register(realtimePlugin, {
+    verifyToken: options.verifyToken,
+    kitchenDeviceStatus: kitchenDeviceStatusChecker,
+  });
 
   const needsPrisma =
     !options.tableRepository ||
@@ -116,7 +158,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
     !options.menuRepository ||
     !options.orderRepository ||
     !options.staffRepository ||
-    !options.kitchenDeviceRepository;
+    !options.kitchenDeviceRepository ||
+    !options.analyticsRepository ||
+    !options.reportsRepository ||
+    !options.stageRepository;
   const prisma = needsPrisma ? getPrisma() : undefined;
 
   const tableRepository =
@@ -133,6 +178,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
     options.staffRepository ?? createPrismaStaffRepository(prisma!);
   const kitchenDeviceRepository =
     options.kitchenDeviceRepository ?? createPrismaKitchenDeviceRepository(prisma!);
+  const analyticsRepository =
+    options.analyticsRepository ?? createPrismaAnalyticsRepository(prisma!);
+  const reportsRepository =
+    options.reportsRepository ?? createPrismaReportsRepository(prisma!);
+  const stageRepository =
+    options.stageRepository ?? createPrismaStageRepository(prisma!);
 
   app.addHook("onClose", async () => {
     await Promise.all([disconnectRedis(), disconnectPrisma()]);
@@ -182,9 +233,49 @@ export async function buildApp(options: BuildAppOptions = {}) {
       validateImageUrl: (url) => uploadService.assertValidMenuImageUrl(url),
     }),
     uploadService,
+    analyticsService: createAnalyticsService({ repo: analyticsRepository }),
+    reportService: createReportService({
+      analytics: analyticsRepository,
+      reports: reportsRepository,
+      settings: settingsRepository,
+    }),
+    staffAdminService: createStaffAdminService({ repo: staffRepository }),
+    superadminSettingsService: createSuperadminSettingsService({
+      repo: settingsRepository,
+    }),
+    stageAdminService: createStageAdminService({ repo: stageRepository }),
+    overrideService: createSuperadminOverrideService({
+      prisma: prisma!,
+      gateway: app.gateway,
+    }),
+    auditService: createSuperadminAuditService({ repo: staffRepository }),
+    kitchenDeviceAdminService: createKitchenDeviceAdminService({
+      devices: kitchenDeviceRepository,
+      staff: staffRepository,
+    }),
     sessionRepository,
     tableRepository,
   });
+
+  // Session timeout sweep — a scheduled job, not a per-request check
+  // (State_Machine §2). Skipped under test: the suite exercises sweepOnce
+  // directly, and fake-only boots have no live prisma to sweep against.
+  if (config.NODE_ENV !== "test") {
+    const sweep = createSessionSweepService({
+      prisma: prisma!,
+      settings: settingsRepository,
+      gateway: app.gateway,
+    });
+    const run = () => {
+      void sweep.sweepOnce().catch((err: unknown) => {
+        app.log.error({ err }, "session timeout sweep failed");
+      });
+    };
+    const timer = setInterval(run, 60_000);
+    timer.unref?.();
+    app.addHook("onClose", () => clearInterval(timer));
+    run();
+  }
 
   return app;
 }

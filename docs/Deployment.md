@@ -56,6 +56,7 @@ links resolve.
 | `JWT_REFRESH_SECRET` | fresh 32+ byte random hex, different again |
 | `CORS_ORIGINS` | the three Vercel domains, comma-separated, no spaces |
 | `CUSTOMER_APP_URL` | the customer app's public origin |
+| `KDS_APP_URL` | the kitchen display app's public origin |
 | `CLOUDINARY_URL` | `cloudinary://key:secret@cloud` |
 | `MIDTRANS_SERVER_KEY` / `MIDTRANS_CLIENT_KEY` | from the Midtrans dashboard |
 | `MIDTRANS_IS_PRODUCTION` | `false` until the real launch |
@@ -80,6 +81,9 @@ queries and `prisma migrate deploy`. Transaction mode (6543) would need
 while `NODE_ENV=production` (`apps/api/src/config.ts`). That is deliberate: the
 value is printed onto physical QR cards, and a silent fallback would ship
 unscannable tables.
+
+`KDS_APP_URL` is refused the same way (default `http://localhost:3002`) — it is
+embedded in every kitchen-device enrolment QR.
 
 Migrations run automatically at container start (`prisma migrate deploy`).
 

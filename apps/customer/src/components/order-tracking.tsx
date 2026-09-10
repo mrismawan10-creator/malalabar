@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   CustomerOrderSummary,
+  OrderCancelledPayload,
   OrderListResponse,
   OrderRejectedPayload,
   OrderStatusPayload,
@@ -101,16 +102,29 @@ function SessionOrders({
           : prev,
       );
     };
+    const onCancelled = (payload: OrderCancelledPayload) => {
+      setOrders((prev) =>
+        prev
+          ? prev.map((o) =>
+              o.id === payload.orderId
+                ? { ...o, cancelled: true, cancelledReason: payload.reason }
+                : o,
+            )
+          : prev,
+      );
+    };
     socket.on("order:status", onStatus);
     socket.on("order:rejected", onRejected);
+    socket.on("order:cancelled", onCancelled);
     return () => {
       socket.off("order:status", onStatus);
       socket.off("order:rejected", onRejected);
+      socket.off("order:cancelled", onCancelled);
     };
   }, [socket]);
 
   useEffect(() => {
-    const live = (orders ?? []).filter((o) => !o.rejected);
+    const live = (orders ?? []).filter((o) => !o.rejected && !o.cancelled);
     onSnapshot(session.session.id, {
       allServed:
         live.length > 0 && live.every((o) => o.currentStage.semanticKey === "SERVED"),
@@ -159,14 +173,20 @@ function SessionOrders({
               <h3 className="text-lg font-bold text-ink">Pesanan #{order.batchNumber}</h3>
               <span
                 className={`rounded-md border-2 px-2 py-0.5 text-xs font-semibold ${
-                  order.rejected
+                  order.cancelled
                     ? "border-danger bg-danger/10 text-danger-ink"
-                    : order.currentStage.semanticKey === "SERVED"
-                      ? "border-success bg-success/10 text-success-ink"
-                      : "border-ink-line bg-surface-page text-ink"
+                    : order.rejected
+                      ? "border-danger bg-danger/10 text-danger-ink"
+                      : order.currentStage.semanticKey === "SERVED"
+                        ? "border-success bg-success/10 text-success-ink"
+                        : "border-ink-line bg-surface-page text-ink"
                 }`}
               >
-                {order.rejected ? "Ditolak" : order.currentStage.label}
+                {order.cancelled
+                  ? "Dibatalkan"
+                  : order.rejected
+                    ? "Ditolak"
+                    : order.currentStage.label}
               </span>
             </div>
 
@@ -178,7 +198,11 @@ function SessionOrders({
               ))}
             </ul>
 
-            {order.rejected ? (
+            {order.cancelled ? (
+              <p className="mt-3 rounded-lg border-2 border-danger bg-danger/10 p-2 text-sm text-danger-ink">
+                {order.cancelledReason ?? "Pesanan ini dibatalkan restoran."}
+              </p>
+            ) : order.rejected ? (
               <p className="mt-3 rounded-lg border-2 border-danger bg-danger/10 p-2 text-sm text-danger-ink">
                 {order.rejectReason ?? "Pesanan ini ditolak kasir."}
               </p>

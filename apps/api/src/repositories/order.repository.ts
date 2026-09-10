@@ -77,6 +77,8 @@ export interface SessionOrderRow {
   batchNumber: number;
   rejected: boolean;
   rejectReason: string | null;
+  cancelled: boolean;
+  cancelledReason: string | null;
   createdAt: Date;
   currentStage: StageRow;
   items: PersistedOrderRow["items"];
@@ -241,6 +243,8 @@ export function createPrismaOrderRepository(
           batchNumber: true,
           rejected: true,
           rejectReason: true,
+          cancelled: true,
+          cancelledReason: true,
           createdAt: true,
           currentStage: {
             select: {
@@ -357,7 +361,11 @@ export function createPrismaOrderRepository(
       if (!awaitingStage) return [];
 
       const orders = await prisma.order.findMany({
-        where: { currentStageId: awaitingStage.id, rejected: false },
+        where: {
+          currentStageId: awaitingStage.id,
+          rejected: false,
+          cancelled: false,
+        },
         orderBy: { createdAt: "asc" },
         select: {
           id: true,
@@ -571,6 +579,7 @@ export function createPrismaOrderRepository(
       const orders = await prisma.order.findMany({
         where: {
           rejected: false,
+          cancelled: false,
           currentStage: {
             semanticKey: { in: ["ACCEPTED", "IN_PROGRESS", "CUSTOM"] },
           },

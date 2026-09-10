@@ -84,6 +84,11 @@ export function CashierInterface() {
         fetchPendingOrders();
       });
 
+      // Superadmin cancelled an order — refresh the pending queue so it drops.
+      socket.on("order:cancelled", () => {
+        fetchPendingOrders();
+      });
+
       // Order status changed: update active tables & remove from pending if approved
       socket.on("order:status", (payload: any) => {
         fetchActiveTables();

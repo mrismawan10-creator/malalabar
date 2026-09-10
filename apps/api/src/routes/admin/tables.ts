@@ -36,6 +36,12 @@ interface Options {
   tableService: TableService;
 }
 
+/** Actor identity comes from the guard-attached principal, never the body. */
+const actorOf = (request: { ip: string }): { staffId: string; ipAddress: string } => ({
+  staffId: (request as unknown as { staffId: string }).staffId,
+  ipAddress: request.ip,
+});
+
 export const adminTableRoutes: FastifyPluginAsync<Options> = async (
   app,
   { tableService },
@@ -51,17 +57,20 @@ export const adminTableRoutes: FastifyPluginAsync<Options> = async (
 
   app.post("/tables", { preHandler: guard }, async (request, reply) => {
     const body = createBodySchema.parse(request.body);
-    const result = await tableService.create({
-      number: body.number,
-      area: body.area ?? null,
-    });
+    const result = await tableService.create(
+      {
+        number: body.number,
+        area: body.area ?? null,
+      },
+      actorOf(request),
+    );
     return reply.status(201).send(result);
   });
 
   app.patch("/tables/:id", { preHandler: guard }, async (request) => {
     const { id } = idParamsSchema.parse(request.params);
     const body = updateBodySchema.parse(request.body);
-    return tableService.update(id, body);
+    return tableService.update(id, body, actorOf(request));
   });
 
   app.post(
@@ -69,7 +78,7 @@ export const adminTableRoutes: FastifyPluginAsync<Options> = async (
     { preHandler: guard },
     async (request) => {
       const { id } = idParamsSchema.parse(request.params);
-      return tableService.regenerateQr(id);
+      return tableService.regenerateQr(id, actorOf(request));
     },
   );
 

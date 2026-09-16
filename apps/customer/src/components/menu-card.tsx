@@ -24,7 +24,6 @@ export function MenuCard({
   const soldOut = !item.isAvailable;
   const price = item.promo?.promoPrice ?? item.basePrice;
   const coverUrl = item.imageUrl ?? item.images[0]?.imageUrl ?? null;
-  const extraPhotos = item.imageUrl ? item.images.length : Math.max(item.images.length - 1, 0);
 
   return (
     <button
@@ -42,23 +41,13 @@ export function MenuCard({
     >
       <div className="relative aspect-[4/3] w-full bg-surface-sunken">
         {coverUrl ? (
-          <>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={imageUrl(coverUrl, "card")}
-              alt=""
-              className={`h-full w-full object-cover ${soldOut ? "opacity-50 grayscale" : ""}`}
-              loading="lazy"
-            />
-            {extraPhotos > 0 && (
-              <span
-                aria-hidden="true"
-                className="absolute bottom-2 right-2 rounded-full bg-ink/70 px-2 py-[2px] text-micro font-bold text-white"
-              >
-                +{extraPhotos} foto
-              </span>
-            )}
-          </>
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={imageUrl(coverUrl, "card")}
+            alt=""
+            className={`h-full w-full object-cover ${soldOut ? "opacity-50 grayscale" : ""}`}
+            loading="lazy"
+          />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-2xl opacity-40">
             🍽️

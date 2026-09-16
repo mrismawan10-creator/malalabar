@@ -24,6 +24,9 @@ export function ItemDetailModal({
   const [quantity, setQuantity] = useState(1);
   const [note, setNote] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const touchStartX = useRef(0);
+  const touchEndX = useRef(0);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -46,9 +49,19 @@ export function ItemDetailModal({
     setQuantity(1);
     setNote("");
     setValidationError(null);
+    setCurrentImageIndex(0);
   }, [item?.id]);
 
   if (!item) return null;
+
+  // Combine imageUrl with additional images, avoiding duplicates
+  const allImages = [
+    ...(item.imageUrl ? [{ id: "primary", imageUrl: item.imageUrl }] : []),
+    ...item.images.filter((img) => img.imageUrl !== item.imageUrl),
+  ];
+  const hasMultipleImages = allImages.length > 1;
+  // A live menu refresh can shrink the gallery under the saved index.
+  const imageIndex = allImages.length > 0 ? Math.min(currentImageIndex, allImages.length - 1) : 0;
 
   const basePrice = item.basePrice;
   const promoPrice = item.promo?.promoPrice ?? null;
@@ -118,6 +131,29 @@ export function ItemDetailModal({
     setSelectedOptions(next);
   };
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0]?.clientX ?? 0;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    touchEndX.current = e.touches[0]?.clientX ?? 0;
+  };
+
+  const handleTouchEnd = () => {
+    const diff = touchStartX.current - touchEndX.current;
+    const threshold = 50;
+
+    if (Math.abs(diff) > threshold) {
+      if (diff > 0 && imageIndex < allImages.length - 1) {
+        // Swipe left - next image
+        setCurrentImageIndex(imageIndex + 1);
+      } else if (diff < 0 && imageIndex > 0) {
+        // Swipe right - previous image
+        setCurrentImageIndex(imageIndex - 1);
+      }
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center">
       <button
@@ -153,14 +189,58 @@ export function ItemDetailModal({
             </p>
           )}
 
-          {item.imageUrl ? (
-            <div className="aspect-[4/3] w-full bg-surface-sunken">
+          {allImages.length > 0 ? (
+            <div
+              className="relative aspect-[4/3] w-full bg-surface-sunken"
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={imageUrl(item.imageUrl, "detail")}
+                src={imageUrl(allImages[imageIndex]?.imageUrl ?? "", "detail")}
                 alt=""
                 className={`h-full w-full object-cover ${item.isAvailable ? "" : "opacity-50 grayscale"}`}
               />
+              {hasMultipleImages && (
+                <>
+                  {/* Navigation arrows */}
+                  {imageIndex > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setCurrentImageIndex(imageIndex - 1)}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-ink/50 p-2 text-white"
+                      aria-label="Gambar sebelumnya"
+                    >
+                      ‹
+                    </button>
+                  )}
+                  {imageIndex < allImages.length - 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setCurrentImageIndex(imageIndex + 1)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-ink/50 p-2 text-white"
+                      aria-label="Gambar berikutnya"
+                    >
+                      ›
+                    </button>
+                  )}
+                  {/* Dots indicator */}
+                  <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1.5">
+                    {allImages.map((_, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setCurrentImageIndex(idx)}
+                        className={`h-2 w-2 rounded-full transition-colors ${
+                          idx === imageIndex ? "bg-white" : "bg-white/50"
+                        }`}
+                        aria-label={`Gambar ${idx + 1}`}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div className="flex h-[84px] w-full items-center justify-center bg-surface-sunken text-2xl opacity-30">

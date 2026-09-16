@@ -6,6 +6,7 @@ import type {
   AdminCustomizationOptionRow,
   AdminMenuItem,
   AdminMenuItemDetail,
+  AdminMenuItemImage,
   AdminMenuStatusFilter,
   CustomizationType,
 } from "@malalabar/types";
@@ -38,6 +39,15 @@ export interface ItemWrite {
   basePrice: number;
   imageUrl: string | null;
   isAvailable: boolean;
+  /** Gallery rows created together with the item, in display order. */
+  imageUrls?: string[];
+}
+
+export interface ItemImageRow {
+  id: string;
+  menuItemId: string;
+  imageUrl: string;
+  sortOrder: number;
 }
 
 export interface MenuAdminRepository {
@@ -98,6 +108,17 @@ export interface MenuAdminRepository {
   deleteCategory(id: string, reassignTo: string | null): Promise<void>;
   reorderCategories(orderedIds: string[]): Promise<AdminCategory[]>;
 
+  /** Null when the image does not exist. */
+  findImage(imageId: string): Promise<ItemImageRow | null>;
+  /** Add an image to a menu item. */
+  addImage(menuItemId: string, imageUrl: string, sortOrder?: number): Promise<AdminMenuItemImage>;
+  /** Remove an image from a menu item. */
+  removeImage(imageId: string): Promise<void>;
+  /** Reorder images for a menu item. */
+  reorderImages(menuItemId: string, orderedIds: string[]): Promise<AdminMenuItemImage[]>;
+  /** Make a gallery image the cover; the previous cover returns to the gallery. */
+  promoteImage(menuItemId: string, imageId: string): Promise<AdminMenuItemImage[]>;
+
   listPromos(): Promise<PromoRow[]>;
   findPromo(id: string): Promise<PromoRow | null>;
   findPromoByItem(menuItemId: string): Promise<PromoRow | null>;
@@ -125,6 +146,7 @@ const itemSelect = {
   updatedAt: true,
   category: { select: { name: true } },
   promo: { select: { id: true, promoPrice: true, label: true, isActive: true } },
+  images: { orderBy: { sortOrder: "asc" }, select: { id: true, imageUrl: true, sortOrder: true } },
   _count: { select: { customizationGroups: true } },
 } as const;
 
@@ -139,6 +161,7 @@ type ItemRecord = {
   updatedAt: Date;
   category: { name: string };
   promo: { id: string; promoPrice: number; label: string | null; isActive: boolean } | null;
+  images: AdminMenuItemImage[];
   _count: { customizationGroups: number };
 };
 
@@ -148,6 +171,7 @@ function toItem(r: ItemRecord): AdminMenuItem {
     name: r.name,
     description: r.description,
     imageUrl: r.imageUrl,
+    images: r.images,
     basePrice: r.basePrice,
     categoryId: r.categoryId,
     categoryName: r.category.name,
@@ -272,7 +296,23 @@ export function createPrismaMenuAdminRepository(
     },
 
     async createItem(data) {
-      const row = await prisma.menuItem.create({ data, select: itemSelect });
+      const { imageUrls, ...item } = data;
+      const row = await prisma.menuItem.create({
+        data: {
+          ...item,
+          ...(imageUrls?.length
+            ? {
+                images: {
+                  create: imageUrls.map((url, index) => ({
+                    imageUrl: url,
+                    sortOrder: (index + 1) * 10,
+                  })),
+                },
+              }
+            : {}),
+        },
+        select: itemSelect,
+      });
       return toItem(row);
     },
 
@@ -463,6 +503,94 @@ export function createPrismaMenuAdminRepository(
         select: categorySelect,
       });
       return rows.map(toCategory);
+    },
+
+    async findImage(imageId) {
+      return prisma.menuItemImage.findUnique({
+        where: { id: imageId },
+        select: { id: true, menuItemId: true, imageUrl: true, sortOrder: true },
+      });
+    },
+
+    async addImage(menuItemId, imageUrl, sortOrder) {
+      const last = await prisma.menuItemImage.findFirst({
+        where: { menuItemId },
+        orderBy: { sortOrder: "desc" },
+        select: { sortOrder: true },
+      });
+      return prisma.menuItemImage.create({
+        data: {
+          menuItemId,
+          imageUrl,
+          sortOrder: sortOrder ?? (last?.sortOrder ?? 0) + 10,
+        },
+      });
+    },
+
+    async removeImage(imageId) {
+      await prisma.menuItemImage.delete({ where: { id: imageId } });
+    },
+
+    async reorderImages(menuItemId, orderedIds) {
+      // Scoped by menuItemId so a foreign id can never move another item's photos.
+      await prisma.$transaction(
+        orderedIds.map((id, index) =>
+          prisma.menuItemImage.updateMany({
+            where: { id, menuItemId },
+            data: { sortOrder: (index + 1) * 10 },
+          }),
+        ),
+      );
+      return prisma.menuItemImage.findMany({
+        where: { menuItemId },
+        orderBy: { sortOrder: "asc" },
+      });
+    },
+
+    async promoteImage(menuItemId, imageId) {
+      const image = await prisma.menuItemImage.findFirst({
+        where: { id: imageId, menuItemId },
+        select: { id: true, imageUrl: true },
+      });
+      if (image) {
+        await prisma.$transaction(async (tx) => {
+          const item = await tx.menuItem.findUnique({
+            where: { id: menuItemId },
+            select: { imageUrl: true },
+          });
+          const previousCover = item?.imageUrl;
+          // The old cover stays available as the last gallery photo.
+          if (previousCover && previousCover !== image.imageUrl) {
+            const duplicate = await tx.menuItemImage.findFirst({
+              where: { menuItemId, imageUrl: previousCover },
+              select: { id: true },
+            });
+            if (!duplicate) {
+              const last = await tx.menuItemImage.findFirst({
+                where: { menuItemId },
+                orderBy: { sortOrder: "desc" },
+                select: { sortOrder: true },
+              });
+              await tx.menuItemImage.create({
+                data: {
+                  menuItemId,
+                  imageUrl: previousCover,
+                  sortOrder: (last?.sortOrder ?? 0) + 10,
+                },
+              });
+            }
+          }
+          await tx.menuItemImage.delete({ where: { id: imageId } });
+          await tx.menuItem.update({
+            where: { id: menuItemId },
+            data: { imageUrl: image.imageUrl },
+          });
+        });
+      }
+      return prisma.menuItemImage.findMany({
+        where: { menuItemId },
+        orderBy: { sortOrder: "asc" },
+      });
     },
 
     async listPromos() {

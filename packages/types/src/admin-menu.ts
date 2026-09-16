@@ -7,11 +7,18 @@ import type { CustomizationType } from "./menu.js";
 
 // ── Menu items ────────────────────────────────────────────────────────────────
 
+export interface AdminMenuItemImage {
+  id: string;
+  imageUrl: string;
+  sortOrder: number;
+}
+
 export interface AdminMenuItem {
   id: string;
   name: string;
   description: string | null;
   imageUrl: string | null;
+  images: AdminMenuItemImage[];
   basePrice: number;
   categoryId: string;
   categoryName: string;
@@ -89,10 +96,13 @@ export interface CreateMenuItemRequest {
   categoryId: string;
   basePrice: number;
   imageUrl?: string | null;
+  /** Additional gallery photos, saved in array order after the cover. */
+  images?: Array<{ imageUrl: string }>;
   isAvailable?: boolean;
 }
 
-export type UpdateMenuItemRequest = Partial<CreateMenuItemRequest>;
+/** The gallery has dedicated endpoints; PATCH only edits the item itself. */
+export type UpdateMenuItemRequest = Partial<Omit<CreateMenuItemRequest, "images">>;
 
 export interface SetAvailabilityRequest {
   isAvailable: boolean;

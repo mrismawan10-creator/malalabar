@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { requireStaffRole } from "../../lib/guards.js";
+import { MAX_GALLERY_IMAGES } from "../../services/menu-admin.service.js";
 import type { MenuAdminService } from "../../services/menu-admin.service.js";
 
 /** Routes stay thin: guard → validate → delegate (SDD_Core §2.3). */
@@ -15,16 +16,20 @@ const listQuery = z.object({
 
 const price = z.number().int().min(0).max(100_000_000);
 
+const galleryImage = z.object({ imageUrl: z.string().url().max(500) });
+
 const createBody = z.object({
   name: z.string().trim().min(1).max(100),
   description: z.string().trim().max(500).nullish(),
   categoryId: z.string().min(1),
   basePrice: price,
   imageUrl: z.string().url().max(500).nullish(),
+  images: z.array(galleryImage).max(MAX_GALLERY_IMAGES).optional(),
   isAvailable: z.boolean().optional(),
 });
 
 const updateBody = createBody
+  .omit({ images: true })
   .partial()
   .refine((b) => Object.keys(b).length > 0, { message: "At least one field must be provided" });
 
@@ -33,6 +38,10 @@ const availabilityBody = z.object({ isAvailable: z.boolean() });
 const bulkBody = z.object({
   ids: z.array(z.string().min(1)).min(1).max(200),
   isAvailable: z.boolean(),
+});
+
+const reorderImagesBody = z.object({
+  orderedIds: z.array(z.string().min(1)).min(1),
 });
 
 interface Options {
@@ -100,4 +109,32 @@ export const adminMenuRoutes: FastifyPluginAsync<Options> = async (app, { menuAd
       return { option };
     },
   );
+
+  // ── Menu item images ────────────────────────────────────────────────────────
+
+  app.post("/menu/:id/images", { preHandler: guard }, async (request, reply) => {
+    const { id } = idParams.parse(request.params);
+    const body = galleryImage.parse(request.body);
+    const image = await menuAdmin.addImage(id, body.imageUrl, actorOf(request));
+    return reply.status(201).send({ image });
+  });
+
+  app.delete("/menu/:id/images/:imageId", { preHandler: guard }, async (request) => {
+    const { id, imageId } = idParams.extend({ imageId: z.string().min(1) }).parse(request.params);
+    await menuAdmin.removeImage(imageId, id, actorOf(request));
+    return { ok: true };
+  });
+
+  app.put("/menu/:id/images/reorder", { preHandler: guard }, async (request) => {
+    const { id } = idParams.parse(request.params);
+    const body = reorderImagesBody.parse(request.body);
+    const images = await menuAdmin.reorderImages(id, body.orderedIds, actorOf(request));
+    return { images };
+  });
+
+  app.put("/menu/:id/images/:imageId/primary", { preHandler: guard }, async (request) => {
+    const { id, imageId } = idParams.extend({ imageId: z.string().min(1) }).parse(request.params);
+    const images = await menuAdmin.promoteImage(id, imageId, actorOf(request));
+    return { images };
+  });
 };

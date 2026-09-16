@@ -129,10 +129,24 @@ model MenuItem {
   customizationGroups CustomizationGroup[]
   promo               Promo?               // at most one
   orderItems          OrderItem[]
+  images              MenuItemImage[]      // gallery; imageUrl above stays the cover
 
   @@index([categoryId])
   @@index([isAvailable, isDeleted])
   @@map("menu_items")
+}
+
+model MenuItemImage {
+  id         String   @id @default(cuid())
+  menuItemId String
+  imageUrl   String                          // Cloudinary URL
+  sortOrder  Int      @default(0)            // gallery order (10, 20, …)
+  createdAt  DateTime @default(now())
+
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@index([menuItemId])
+  @@map("menu_item_images")
 }
 
 enum CustomizationType {

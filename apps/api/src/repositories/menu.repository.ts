@@ -25,6 +25,7 @@ export interface MenuItemRow {
   name: string;
   description: string | null;
   imageUrl: string | null;
+  images: Array<{ id: string; imageUrl: string; sortOrder: number }>;
   basePrice: number;
   categoryId: string;
   isAvailable: boolean;
@@ -46,6 +47,7 @@ export interface MenuItemDetailRow {
   name: string;
   description: string | null;
   imageUrl: string | null;
+  images: Array<{ id: string; imageUrl: string; sortOrder: number }>;
   basePrice: number;
   isAvailable: boolean;
   promo: MenuItemPromoRow | null;
@@ -106,6 +108,10 @@ export function createPrismaMenuRepository(
           promo: {
             select: { promoPrice: true, label: true, isActive: true },
           },
+          images: {
+            orderBy: { sortOrder: "asc" },
+            select: { id: true, imageUrl: true, sortOrder: true },
+          },
           _count: { select: { customizationGroups: true } },
         },
       });
@@ -149,6 +155,10 @@ export function createPrismaMenuRepository(
           basePrice: true,
           isAvailable: true,
           promo: { select: { promoPrice: true, label: true, isActive: true } },
+          images: {
+            orderBy: { sortOrder: "asc" },
+            select: { id: true, imageUrl: true, sortOrder: true },
+          },
           customizationGroups: {
             orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
             select: {
@@ -184,6 +194,10 @@ export function createPrismaMenuRepository(
           categoryId: true,
           isAvailable: true,
           promo: { select: { promoPrice: true, label: true, isActive: true } },
+          images: {
+            orderBy: { sortOrder: "asc" },
+            select: { id: true, imageUrl: true, sortOrder: true },
+          },
           _count: { select: { customizationGroups: true } },
         },
       }).then((rows) =>
@@ -231,6 +245,10 @@ export function createPrismaMenuRepository(
           categoryId: true,
           isAvailable: true,
           promo: { select: { promoPrice: true, label: true, isActive: true } },
+          images: {
+            orderBy: { sortOrder: "asc" },
+            select: { id: true, imageUrl: true, sortOrder: true },
+          },
           _count: { select: { customizationGroups: true } },
         },
       });

@@ -65,6 +65,7 @@ export function createMenuService(repo: MenuRepository): MenuService {
           name: item.name,
           description: item.description,
           imageUrl: item.imageUrl,
+          images: item.images,
           basePrice: item.basePrice,
           categoryId: item.categoryId,
           // Sold-out items stay in the payload so the app can render HABIS
@@ -89,6 +90,7 @@ export function createMenuService(repo: MenuRepository): MenuService {
         name: item.name,
         description: item.description,
         imageUrl: item.imageUrl,
+        images: item.images,
         basePrice: item.basePrice,
         isAvailable: item.isAvailable,
         promo: promo && { promoPrice: promo.promoPrice, label: promo.label },

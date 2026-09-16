@@ -34,11 +34,18 @@ export interface MenuItemPromo {
   discountPercent: number;
 }
 
+export interface MenuItemImage {
+  id: string;
+  imageUrl: string;
+  sortOrder: number;
+}
+
 export interface MenuItemSummary {
   id: string;
   name: string;
   description: string | null;
   imageUrl: string | null;
+  images: MenuItemImage[];
   basePrice: number;
   categoryId: string;
   /** Sold-out items are still returned, rendered as HABIS (PRD 4.2.2). */
@@ -75,6 +82,7 @@ export interface MenuItemDetail {
   name: string;
   description: string | null;
   imageUrl: string | null;
+  images: MenuItemImage[];
   basePrice: number;
   isAvailable: boolean;
   /** Detail omits discountPercent — the badge lives on the promo carousel. */

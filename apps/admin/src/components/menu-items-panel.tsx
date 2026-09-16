@@ -5,6 +5,7 @@ import type {
   AdminCategory,
   AdminMenuItem,
   AdminMenuItemDetail,
+  AdminMenuItemImage,
   AdminMenuStatusFilter,
   CreateMenuItemRequest,
 } from "@malalabar/types";
@@ -63,7 +64,10 @@ export function MenuItemsPanel({
   const [formError, setFormError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [cropFile, setCropFile] = useState<File | null>(null);
+  const [cropType, setCropType] = useState<"primary" | "additional">("primary");
   const [optionGroups, setOptionGroups] = useState<AdminMenuItemDetail["customizationGroups"]>([]);
+  const [additionalImages, setAdditionalImages] = useState<AdminMenuItemImage[]>([]);
+  const [uploadingAdditional, setUploadingAdditional] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -130,6 +134,7 @@ export function MenuItemsPanel({
     setDraft(emptyDraft(categories[0]?.id ?? ""));
     setFormError(null);
     setOptionGroups([]);
+    setAdditionalImages([]);
     setEditing("new");
   };
 
@@ -145,10 +150,14 @@ export function MenuItemsPanel({
     });
     setFormError(null);
     setEditing(item);
+    setAdditionalImages(item.images);
     // Options live on the detail payload; fetched on demand so the list stays light.
     setOptionGroups([]);
     adminFetch<{ item: AdminMenuItemDetail }>(`/admin/menu/${item.id}`, token)
-      .then((res) => setOptionGroups(res.item.customizationGroups))
+      .then((res) => {
+        setOptionGroups(res.item.customizationGroups);
+        setAdditionalImages(res.item.images);
+      })
       .catch(() => {});
   };
 
@@ -159,6 +168,7 @@ export function MenuItemsPanel({
     setFormError(null);
     if (!SOURCE_TYPES.has(file.type)) return setFormError("Format foto harus JPG atau PNG");
     if (file.size > MAX_SOURCE_BYTES) return setFormError("Foto terlalu besar (maks 15 MB)");
+    setCropType("primary");
     setCropFile(file);
   };
 
@@ -176,6 +186,124 @@ export function MenuItemsPanel({
     }
   };
 
+  const onPickAdditionalImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setFormError(null);
+    if (!SOURCE_TYPES.has(file.type)) return setFormError("Format foto harus JPG atau PNG");
+    if (file.size > MAX_SOURCE_BYTES) return setFormError("Foto terlalu besar (maks 15 MB)");
+    setCropType("additional");
+    setCropFile(file);
+  };
+
+  const uploadAdditionalImage = async (file: File) => {
+    setCropFile(null);
+    setUploadingAdditional(true);
+    setFormError(null);
+    try {
+      const url = await uploadMenuImage(file, token);
+      if (editing && editing !== "new") {
+        const res = await adminFetch<{ image: AdminMenuItemImage }>(
+          `/admin/menu/${editing.id}/images`,
+          token,
+          { method: "POST", json: { imageUrl: url } },
+        );
+        setAdditionalImages((prev) => [...prev, res.image]);
+      } else {
+        // Held locally until "Simpan" creates the item with its gallery.
+        setAdditionalImages((prev) => [
+          ...prev,
+          { id: `local-${Date.now()}-${prev.length}`, imageUrl: url, sortOrder: (prev.length + 1) * 10 },
+        ]);
+      }
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Upload foto gagal");
+    } finally {
+      setUploadingAdditional(false);
+    }
+  };
+
+  const removeAdditionalImage = async (imageId: string) => {
+    if (!editing) return;
+    if (editing === "new") {
+      setAdditionalImages((prev) => prev.filter((img) => img.id !== imageId));
+      return;
+    }
+    try {
+      await adminFetch(`/admin/menu/${editing.id}/images/${imageId}`, token, {
+        method: "DELETE",
+      });
+      setAdditionalImages((prev) => prev.filter((img) => img.id !== imageId));
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Gagal menghapus foto");
+    }
+  };
+
+  const refreshAdditionalImages = async (itemId: string) => {
+    try {
+      const res = await adminFetch<{ item: AdminMenuItemDetail }>(`/admin/menu/${itemId}`, token);
+      setAdditionalImages(res.item.images);
+    } catch {
+      // Keep the local list; the next open re-syncs anyway.
+    }
+  };
+
+  const moveAdditionalImage = async (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= additionalImages.length) return;
+    const next = [...additionalImages];
+    const [moved] = next.splice(index, 1);
+    if (!moved) return;
+    next.splice(target, 0, moved);
+    setAdditionalImages(next);
+    if (editing && editing !== "new") {
+      try {
+        const res = await adminFetch<{ images: AdminMenuItemImage[] }>(
+          `/admin/menu/${editing.id}/images/reorder`,
+          token,
+          { method: "PUT", json: { orderedIds: next.map((img) => img.id) } },
+        );
+        setAdditionalImages(res.images);
+      } catch (err) {
+        setFormError(err instanceof Error ? err.message : "Gagal mengubah urutan foto");
+        void refreshAdditionalImages(editing.id);
+      }
+    }
+  };
+
+  const promoteAdditionalImage = async (img: AdminMenuItemImage) => {
+    if (!editing) return;
+    if (editing === "new") {
+      const previousCover = draft.imageUrl;
+      setDraft((d) => ({ ...d, imageUrl: img.imageUrl }));
+      setAdditionalImages((prev) => {
+        const others = prev.filter((p) => p.id !== img.id);
+        if (!previousCover || previousCover === img.imageUrl) return others;
+        return [
+          ...others,
+          {
+            id: `local-${Date.now()}-${others.length}`,
+            imageUrl: previousCover,
+            sortOrder: (others.length + 1) * 10,
+          },
+        ];
+      });
+      return;
+    }
+    try {
+      const res = await adminFetch<{ images: AdminMenuItemImage[] }>(
+        `/admin/menu/${editing.id}/images/${img.id}/primary`,
+        token,
+        { method: "PUT" },
+      );
+      setDraft((d) => ({ ...d, imageUrl: img.imageUrl }));
+      setAdditionalImages(res.images);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Gagal menjadikan foto utama");
+    }
+  };
+
   const save = async () => {
     const basePrice = Number(draft.basePrice.replace(/[^\d]/g, ""));
     if (!draft.name.trim()) return setFormError("Nama wajib diisi");
@@ -189,6 +317,9 @@ export function MenuItemsPanel({
       basePrice,
       isAvailable: draft.isAvailable,
       imageUrl: draft.imageUrl,
+      ...(editing === "new" && additionalImages.length > 0
+        ? { images: additionalImages.map((img) => ({ imageUrl: img.imageUrl })) }
+        : {}),
     };
     setFormError(null);
     try {
@@ -336,9 +467,13 @@ export function MenuItemsPanel({
                   <td className="p-3">
                     <div className="flex items-center gap-3">
                       <div className="h-10 w-10 shrink-0 overflow-hidden rounded border border-surface-line bg-surface-page">
-                        {item.imageUrl ? (
+                        {item.imageUrl ?? item.images[0]?.imageUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={imageUrl(item.imageUrl, "adminThumb")} alt="" className="h-full w-full object-cover" />
+                          <img
+                            src={imageUrl(item.imageUrl ?? item.images[0]!.imageUrl, "adminThumb")}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center text-base opacity-40">
                             🍽️
@@ -449,6 +584,76 @@ export function MenuItemsPanel({
               </div>
             </div>
 
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-ink">Foto Tambahan</span>
+                <label className="inline-block px-3 py-1.5 bg-surface-hover hover:bg-surface-hover-active rounded-lg text-sm font-medium text-ink cursor-pointer">
+                  {uploadingAdditional ? "Mengunggah…" : "+ Tambah Foto"}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png"
+                    className="sr-only"
+                    onChange={onPickAdditionalImage}
+                    disabled={uploadingAdditional}
+                  />
+                </label>
+              </div>
+              {additionalImages.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {additionalImages.map((img, index) => (
+                    <div key={img.id} className="relative group">
+                      <div className="h-16 w-16 overflow-hidden rounded-lg border border-surface-line bg-surface-page">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={imageUrl(img.imageUrl, "adminThumb")} alt="" className="h-full w-full object-cover" />
+                      </div>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-lg bg-ink/50 opacity-0 transition-opacity group-hover:opacity-100">
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => void moveAdditionalImage(index, -1)}
+                            disabled={index === 0}
+                            className="h-5 w-5 rounded bg-white/90 text-xs text-ink disabled:opacity-40"
+                            aria-label="Geser ke kiri"
+                          >
+                            ‹
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeAdditionalImage(img.id)}
+                            className="h-5 w-5 rounded bg-danger text-xs text-white"
+                            aria-label="Hapus foto"
+                          >
+                            ×
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void moveAdditionalImage(index, 1)}
+                            disabled={index === additionalImages.length - 1}
+                            className="h-5 w-5 rounded bg-white/90 text-xs text-ink disabled:opacity-40"
+                            aria-label="Geser ke kanan"
+                          >
+                            ›
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void promoteAdditionalImage(img)}
+                          className="rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-medium text-ink"
+                        >
+                          Jadikan utama
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-ink-secondary">
+                {editing === "new"
+                  ? "Foto tambahan ikut tersimpan saat kamu klik Simpan, dan tampil sebagai slider di aplikasi customer."
+                  : "Perubahan foto tambahan (tambah, hapus, urutkan, jadikan utama) langsung tersimpan tanpa menunggu Simpan. Urutan ini tampil sebagai slider di aplikasi customer."}
+              </p>
+            </div>
+
             <label className="block">
               <span className="block text-sm font-medium text-ink mb-1">Nama</span>
               <input
@@ -537,7 +742,7 @@ export function MenuItemsPanel({
               <button
                 type="button"
                 onClick={save}
-                disabled={uploading}
+                disabled={uploading || uploadingAdditional}
                 className="flex-1 px-4 py-2 bg-primary hover:bg-primary-hover disabled:bg-surface-hover text-white font-medium rounded-lg"
               >
                 Simpan
@@ -552,7 +757,11 @@ export function MenuItemsPanel({
         <ImageCropEditor
           file={cropFile}
           onCancel={() => setCropFile(null)}
-          onConfirm={(cropped) => void uploadCropped(cropped)}
+          onConfirm={(cropped) =>
+            cropType === "primary"
+              ? void uploadCropped(cropped)
+              : void uploadAdditionalImage(cropped)
+          }
         />
       )}
     </div>

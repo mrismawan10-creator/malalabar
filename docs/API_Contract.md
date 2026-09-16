@@ -331,12 +331,16 @@ res:  { order: { id, currentStage: { id, label, semanticKey, sortOrder } } }
 ### Menu
 ```
 GET    /admin/menu?categoryId=&q=&status=         list with thumbnails
-POST   /admin/menu                                create (name, description, categoryId, basePrice, imageUrl?, customizationGroups?)
+POST   /admin/menu                                create (name, description, categoryId, basePrice, imageUrl?, images?, isAvailable?)
 GET    /admin/menu/:id                             detail incl. customization groups
 PATCH  /admin/menu/:id                             edit any field incl. customization definitions
 DELETE /admin/menu/:id                             soft delete (isDeleted=true); 200
 POST   /admin/menu/:id/availability               { isAvailable }  → one-click toggle, syncs to customers
 POST   /admin/menu/availability/bulk              { ids: string[], isAvailable }  → bulk toggle
+POST   /admin/menu/:id/images                     { imageUrl } → 201 { image }  (gallery photo, appended last)
+DELETE /admin/menu/:id/images/:imageId            → { ok }                     (404 unless that photo belongs to the item)
+PUT    /admin/menu/:id/images/reorder             { orderedIds } → { images }   (422 unless it is the full gallery)
+PUT    /admin/menu/:id/images/:imageId/primary    → { images }                 (promote to cover; old cover returns to the gallery)
 ```
 Image upload: client uploads to Cloudinary (signed), sends back the resulting `imageUrl`. Max 2MB, JPG/PNG enforced client + server.
 ```
@@ -346,6 +350,8 @@ POST   /admin/uploads/sign                          → { upload: { cloudName, a
                                                                   uploadUrl, maxBytes } }
 ```
 The browser POSTs `file`, `api_key`, `signature` and **every entry of `signedParams` verbatim** to `uploadUrl`, then sends back `secure_url` as `imageUrl`. `signedParams` is the authoritative list (today: `timestamp`, `folder`, `allowed_formats`, `transformation`); clients must not hard-code it, because any param missing from the form makes Cloudinary reject the signature. `transformation` (`c_limit,w_1600,h_1600,q_auto:good`) is applied by Cloudinary as the file is stored, so originals are capped at 1600 px; being inside the signature, a client cannot drop it. The admin app crops every photo to **4:3 at 1600×1200 JPEG in the browser** before uploading (owner pans/zooms; minimum zoom is "cover"), so stored menu images share one ratio and the 2 MB rule applies to that result. Per-slot sizing (4:3 card, square thumb, 4:3 detail) is done at delivery time by `imageUrl(url, slot)` in `packages/ui`, which injects `c_fill,g_auto,…,f_auto,q_auto` — subject-aware crop, WebP/AVIF, 2× for retina — and passes non-Cloudinary URLs through unchanged. 503 `UPLOAD_NOT_CONFIGURED` when `CLOUDINARY_URL` is unset. On create/patch the API re-validates `imageUrl` before saving: it must be `https://res.cloudinary.com/<our cloud>/image/upload/…/malalabar/menu/…`, and a HEAD must report `image/jpeg|png` and ≤ 2 MB — otherwise 422 (`IMAGE_URL_INVALID`, `IMAGE_TYPE_INVALID`, `IMAGE_TOO_LARGE`, `IMAGE_UNREACHABLE`).
+
+**Photo gallery.** Every item has one **cover** (`imageUrl`) plus up to **9 gallery photos** (`MenuItemImage` rows, Data_Model §3.2). Gallery endpoints return `images: [{ id, imageUrl, sortOrder }]` ordered by `sortOrder`; the cover is not repeated in that list. `POST /admin/menu` accepts `images: [{ imageUrl }]` so a new item is created with its gallery in one shot (array order becomes `sortOrder`); duplicates and the cover URL are dropped. `POST …/images` appends one photo (cover URL → 422 `IMAGE_DUPLICATE`, 10th photo → 422 `IMAGE_LIMIT_REACHED`, both with the same Cloudinary/HEAD validation as `imageUrl`). `reorder` overwrites `sortOrder` and demands a permutation of the item's gallery (otherwise 422 `IMAGE_ORDER_INVALID`). `primary` swaps a gallery photo with the cover atomically; the previous cover is appended to the gallery (unless it was already there). Customer payloads (`/menu`, `/menu/items/:id`) carry the same `images` array; the grid shows the cover, the detail modal shows the slider. Missing photos answer 404 `IMAGE_NOT_FOUND`. Every gallery write is audited under the acting staff.
 
 Realtime: availability changes (single, bulk, and the implicit one on DELETE) emit **one** `menu:availability`; a `basePrice` change on an item with an active promo re-emits `menu:promo` because `discountPercent` is derived. Create/edit of other fields is not pushed — customers pick it up on their next menu load. Every write is audited under the acting staff (hard rule 9). Customization groups are read back on `GET /admin/menu/:id` but edited via the dedicated endpoints below (not yet implemented).
 

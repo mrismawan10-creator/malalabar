@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { PrismaClient } from "@malalabar/db";
-import type { AdminCategory, AdminMenuItem, AdminMenuItemDetail } from "@malalabar/types";
+import type { AdminCategory, AdminMenuItem, AdminMenuItemDetail, AdminMenuItemImage } from "@malalabar/types";
 import { createMenuAdminService, discountPercent } from "../services/menu-admin.service.js";
 import type { RealtimeGateway } from "../realtime/gateway.js";
 import type {
@@ -20,6 +20,7 @@ function fakeRepo() {
       name: "Nasi Goreng",
       description: null,
       imageUrl: null,
+      images: [],
       basePrice: 35000,
       categoryId: "cat-food",
       categoryName: "Makanan",
@@ -90,14 +91,20 @@ function fakeRepo() {
       return item ? { ...item, promo: item.promo ? { ...item.promo } : null } : null;
     },
     async createItem(data) {
+      const { imageUrls, ...rest } = data;
       const item: AdminMenuItemDetail = {
         id: `item-${++seq + 1}`,
-        ...data,
+        ...rest,
         categoryName: categories.find((c) => c.id === data.categoryId)!.name,
         customizationGroupCount: 0,
         promo: null,
         updatedAt: new Date().toISOString(),
         customizationGroups: [],
+        images: (imageUrls ?? []).map((url, index) => ({
+          id: `img-${++seq}`,
+          imageUrl: url,
+          sortOrder: (index + 1) * 10,
+        })),
       };
       items.push(item);
       return item;
@@ -200,6 +207,66 @@ function fakeRepo() {
       });
       categories.sort((a, b) => a.sortOrder - b.sortOrder);
       return categories;
+    },
+    async findImage(imageId) {
+      for (const item of items) {
+        const image = item.images.find((img) => img.id === imageId);
+        if (image) return { ...image, menuItemId: item.id };
+      }
+      return null;
+    },
+    async addImage(menuItemId, imageUrl, sortOrder) {
+      const item = items.find((i) => i.id === menuItemId)!;
+      const image: AdminMenuItemImage = {
+        id: `img-${++seq}`,
+        imageUrl,
+        sortOrder: sortOrder ?? item.images.length * 10 + 10,
+      };
+      item.images.push(image);
+      return image;
+    },
+    async removeImage(imageId) {
+      for (const item of items) {
+        const idx = item.images.findIndex((img) => img.id === imageId);
+        if (idx !== -1) {
+          item.images.splice(idx, 1);
+          return;
+        }
+      }
+    },
+    async reorderImages(menuItemId, orderedIds) {
+      const item = items.find((i) => i.id === menuItemId)!;
+      const imageMap = new Map(item.images.map((img) => [img.id, img]));
+      item.images = orderedIds
+        .map((id, i) => {
+          const img = imageMap.get(id);
+          if (img) {
+            img.sortOrder = (i + 1) * 10;
+          }
+          return img;
+        })
+        .filter((img): img is AdminMenuItemImage => img !== undefined);
+      return item.images;
+    },
+    async promoteImage(menuItemId, imageId) {
+      const item = items.find((i) => i.id === menuItemId)!;
+      const idx = item.images.findIndex((img) => img.id === imageId);
+      const promoted = item.images[idx];
+      if (promoted) {
+        item.images.splice(idx, 1);
+        const previousCover = item.imageUrl;
+        if (previousCover && previousCover !== promoted.imageUrl) {
+          if (!item.images.some((img) => img.imageUrl === previousCover)) {
+            item.images.push({
+              id: `img-${++seq}`,
+              imageUrl: previousCover,
+              sortOrder: (item.images.length + 1) * 10,
+            });
+          }
+        }
+        item.imageUrl = promoted.imageUrl;
+      }
+      return item.images;
     },
     async listPromos() {
       return promos.map(view);
@@ -322,6 +389,117 @@ describe("MenuAdminService", () => {
           promo: expect.objectContaining({ discountPercent: discountPercent(40000, 28000) }),
         }),
       );
+    });
+  });
+
+  describe("menu item images (T5.1)", () => {
+    it("adds a gallery image with an incremental sortOrder and audits it (happy path)", async () => {
+      const image = await build().addImage("item-1", "https://cdn.example/gal-1.jpg", ACTOR);
+
+      expect(image).toMatchObject({ imageUrl: "https://cdn.example/gal-1.jpg", sortOrder: 10 });
+      expect((await fake.repo.findItem("item-1"))!.images).toHaveLength(1);
+      expect(auditActions()).toContain("ADD_MENU_IMAGE");
+    });
+
+    it("rejects adding the URL already used as the cover (failure path)", async () => {
+      await build().updateItem("item-1", { imageUrl: "https://cdn.example/cover.jpg" }, ACTOR);
+
+      await expect(
+        build().addImage("item-1", "https://cdn.example/cover.jpg", ACTOR),
+      ).rejects.toMatchObject({ code: "IMAGE_DUPLICATE", statusCode: 422 });
+      expect(auditActions()).not.toContain("ADD_MENU_IMAGE");
+    });
+
+    it("caps the gallery at nine photos (failure path)", async () => {
+      for (let i = 0; i < 9; i++) {
+        await build().addImage("item-1", `https://cdn.example/gal-${i}.jpg`, ACTOR);
+      }
+
+      await expect(
+        build().addImage("item-1", "https://cdn.example/gal-10.jpg", ACTOR),
+      ).rejects.toMatchObject({ code: "IMAGE_LIMIT_REACHED", statusCode: 422 });
+    });
+
+    it("creates a gallery together with the item and validates every URL (happy path)", async () => {
+      const validateImageUrl = vi.fn().mockResolvedValue(undefined);
+      const svc = createMenuAdminService({
+        repo: fake.repo,
+        prisma: { auditLog: { create: audit } } as unknown as PrismaClient,
+        gateway: gateway as unknown as RealtimeGateway,
+        validateImageUrl,
+      });
+
+      const item = await svc.createItem(
+        {
+          name: "Es Jeruk",
+          categoryId: "cat-drink",
+          basePrice: 10000,
+          imageUrl: "https://cdn.example/cover.jpg",
+          // The cover URL is dropped from the gallery, keeping it unique.
+          images: [
+            { imageUrl: "https://cdn.example/gal.jpg" },
+            { imageUrl: "https://cdn.example/gal.jpg" },
+            { imageUrl: "https://cdn.example/cover.jpg" },
+          ],
+        },
+        ACTOR,
+      );
+
+      expect(validateImageUrl).toHaveBeenCalledTimes(2);
+      expect(validateImageUrl).toHaveBeenCalledWith("https://cdn.example/cover.jpg");
+      expect(validateImageUrl).toHaveBeenCalledWith("https://cdn.example/gal.jpg");
+      const detail = await fake.repo.findItem(item.id);
+      expect(detail!.images.map((i) => ({ url: i.imageUrl, sortOrder: i.sortOrder }))).toEqual([
+        { url: "https://cdn.example/gal.jpg", sortOrder: 10 },
+      ]);
+    });
+
+    it("removes a gallery image and audits it (happy path)", async () => {
+      const image = await build().addImage("item-1", "https://cdn.example/gal-1.jpg", ACTOR);
+
+      await build().removeImage(image.id, "item-1", ACTOR);
+
+      expect((await fake.repo.findItem("item-1"))!.images).toHaveLength(0);
+      expect(auditActions()).toContain("REMOVE_MENU_IMAGE");
+    });
+
+    it("refuses to remove an image through another item's id (failure path)", async () => {
+      const other = await build().createItem(
+        { name: "Es Teh", categoryId: "cat-drink", basePrice: 8000 },
+        ACTOR,
+      );
+      const image = await build().addImage(other.id, "https://cdn.example/gal-1.jpg", ACTOR);
+
+      await expect(build().removeImage(image.id, "item-1", ACTOR)).rejects.toMatchObject({
+        code: "IMAGE_NOT_FOUND",
+        statusCode: 404,
+      });
+      expect((await fake.repo.findItem(other.id))!.images).toHaveLength(1);
+    });
+
+    it("reorders only when the payload is the full gallery (happy + failure path)", async () => {
+      const a = await build().addImage("item-1", "https://cdn.example/a.jpg", ACTOR);
+      const b = await build().addImage("item-1", "https://cdn.example/b.jpg", ACTOR);
+
+      const images = await build().reorderImages("item-1", [b.id, a.id], ACTOR);
+      expect(images.map((i) => i.id)).toEqual([b.id, a.id]);
+
+      await expect(build().reorderImages("item-1", [a.id], ACTOR)).rejects.toMatchObject({
+        code: "IMAGE_ORDER_INVALID",
+        statusCode: 422,
+      });
+    });
+
+    it("promotes a gallery photo to cover and returns the old cover to the gallery (happy path)", async () => {
+      await build().updateItem("item-1", { imageUrl: "https://cdn.example/old-cover.jpg" }, ACTOR);
+      const image = await build().addImage("item-1", "https://cdn.example/new-cover.jpg", ACTOR);
+
+      const gallery = await build().promoteImage("item-1", image.id, ACTOR);
+      const item = await fake.repo.findItem("item-1");
+
+      expect(item!.imageUrl).toBe("https://cdn.example/new-cover.jpg");
+      expect(gallery.map((i) => i.imageUrl)).toEqual(["https://cdn.example/old-cover.jpg"]);
+      expect(auditActions()).toContain("PROMOTE_MENU_IMAGE");
     });
   });
 

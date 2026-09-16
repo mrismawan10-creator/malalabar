@@ -6,6 +6,7 @@ import type {
   AdminCustomizationOptionRow,
   AdminMenuItem,
   AdminMenuItemDetail,
+  AdminMenuItemImage,
   AdminPromo,
   BulkAvailabilityRequest,
   CreateCategoryRequest,
@@ -32,6 +33,9 @@ export interface Actor {
   staffId: string;
   ipAddress?: string;
 }
+
+/** One cover (`MenuItem.imageUrl`) plus this many gallery rows. */
+export const MAX_GALLERY_IMAGES = 9;
 
 export interface MenuAdminService {
   listItems(filter: ItemFilter): Promise<AdminMenuItem[]>;
@@ -74,6 +78,11 @@ export interface MenuAdminService {
   updateCategory(id: string, body: UpdateCategoryRequest, actor: Actor): Promise<AdminCategory>;
   deleteCategory(id: string, reassignTo: string | undefined, actor: Actor): Promise<void>;
   reorderCategories(orderedIds: string[], actor: Actor): Promise<AdminCategory[]>;
+
+  addImage(menuItemId: string, imageUrl: string, actor: Actor): Promise<AdminMenuItemImage>;
+  removeImage(imageId: string, menuItemId: string, actor: Actor): Promise<void>;
+  reorderImages(menuItemId: string, orderedIds: string[], actor: Actor): Promise<AdminMenuItemImage[]>;
+  promoteImage(menuItemId: string, imageId: string, actor: Actor): Promise<AdminMenuItemImage[]>;
 
   listPromos(): Promise<AdminPromo[]>;
   createPromo(body: CreatePromoRequest, actor: Actor): Promise<AdminPromo>;
@@ -206,6 +215,18 @@ export function createMenuAdminService(deps: {
     async createItem(body, actor) {
       await requireCategory(body.categoryId);
       if (body.imageUrl) await deps.validateImageUrl?.(body.imageUrl);
+      // Cover first, then the gallery; the same URL never appears twice.
+      const galleryUrls = [...new Set((body.images ?? []).map((i) => i.imageUrl))].filter(
+        (url) => url !== body.imageUrl,
+      );
+      if (galleryUrls.length > MAX_GALLERY_IMAGES) {
+        throw new AppError(
+          "IMAGE_LIMIT_REACHED",
+          `Maksimal ${MAX_GALLERY_IMAGES} foto tambahan per menu`,
+          422,
+        );
+      }
+      for (const url of galleryUrls) await deps.validateImageUrl?.(url);
       const item = await repo.createItem({
         name: body.name,
         description: body.description ?? null,
@@ -213,6 +234,7 @@ export function createMenuAdminService(deps: {
         basePrice: body.basePrice,
         imageUrl: body.imageUrl ?? null,
         isAvailable: body.isAvailable ?? true,
+        imageUrls: galleryUrls,
       });
       await audit(actor, "CREATE_MENU_ITEM", "MENU_ITEM", item.id, {
         name: item.name,
@@ -456,6 +478,75 @@ export function createMenuAdminService(deps: {
       const categories = await repo.reorderCategories(orderedIds);
       await audit(actor, "REORDER_CATEGORIES", "CATEGORY", "*", { orderedIds });
       return categories;
+    },
+
+    async addImage(menuItemId, imageUrl, actor) {
+      const item = await requireItem(menuItemId);
+      if (item.images.length >= MAX_GALLERY_IMAGES) {
+        throw new AppError(
+          "IMAGE_LIMIT_REACHED",
+          `Maksimal ${MAX_GALLERY_IMAGES} foto tambahan per menu`,
+          422,
+        );
+      }
+      if (imageUrl === item.imageUrl) {
+        throw new AppError(
+          "IMAGE_DUPLICATE",
+          "Foto ini sudah dipakai sebagai foto utama",
+          422,
+        );
+      }
+      if (deps.validateImageUrl) await deps.validateImageUrl(imageUrl);
+      const image = await repo.addImage(menuItemId, imageUrl);
+      await audit(actor, "ADD_MENU_IMAGE", "MENU_ITEM_IMAGE", image.id, {
+        menuItemId,
+        imageUrl,
+      });
+      return image;
+    },
+
+    async removeImage(imageId, menuItemId, actor) {
+      await requireItem(menuItemId);
+      const image = await repo.findImage(imageId);
+      if (!image || image.menuItemId !== menuItemId) {
+        throw new AppError("IMAGE_NOT_FOUND", "Foto tidak ditemukan", 404);
+      }
+      await repo.removeImage(imageId);
+      await audit(actor, "REMOVE_MENU_IMAGE", "MENU_ITEM_IMAGE", imageId, {
+        menuItemId,
+        imageUrl: image.imageUrl,
+      });
+    },
+
+    async reorderImages(menuItemId, orderedIds, actor) {
+      const item = await requireItem(menuItemId);
+      // The payload must be a permutation of the item's gallery, not a subset.
+      const current = item.images.map((i) => i.id).sort();
+      const next = [...orderedIds].sort();
+      if (current.length !== next.length || current.some((id, i) => id !== next[i])) {
+        throw new AppError(
+          "IMAGE_ORDER_INVALID",
+          "Daftar foto tidak cocok dengan data menu",
+          422,
+        );
+      }
+      const images = await repo.reorderImages(menuItemId, orderedIds);
+      await audit(actor, "REORDER_MENU_IMAGES", "MENU_ITEM", menuItemId, { orderedIds });
+      return images;
+    },
+
+    async promoteImage(menuItemId, imageId, actor) {
+      await requireItem(menuItemId);
+      const image = await repo.findImage(imageId);
+      if (!image || image.menuItemId !== menuItemId) {
+        throw new AppError("IMAGE_NOT_FOUND", "Foto tidak ditemukan", 404);
+      }
+      const images = await repo.promoteImage(menuItemId, imageId);
+      await audit(actor, "PROMOTE_MENU_IMAGE", "MENU_ITEM_IMAGE", imageId, {
+        menuItemId,
+        imageUrl: image.imageUrl,
+      });
+      return images;
     },
 
     async listPromos() {

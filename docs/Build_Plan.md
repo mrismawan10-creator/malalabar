@@ -226,7 +226,7 @@ Done: each method reaches a receipt; lost redirect still lands on receipt via we
 
 **T5.1 — Menu CRUD + availability + image upload**
 Reads: API_Contract.md §6 (Menu), PRD 4.5.1, Data_Model.md (soft delete).
-Build: create/edit/soft-delete menu items; one-click availability toggle; bulk toggle (single array emit); Cloudinary **signed** upload (backend mints signature, frontend uploads, returns `imageUrl`; max 2MB JPG/PNG enforced both sides).
+Build: create/edit/soft-delete menu items; one-click availability toggle; bulk toggle (single array emit); Cloudinary **signed** upload (backend mints signature, frontend uploads, returns `imageUrl`; max 2MB JPG/PNG enforced both sides). One cover plus a photo gallery per item (create with `images`, then add/remove/reorder/promote via `/admin/menu/:id/images…`), shown as a slider in the customer detail modal.
 Done: soft-deleted item vanishes from `/menu` but its past orders still render from snapshots.
 
 **T5.2 — Category CRUD + reorder**

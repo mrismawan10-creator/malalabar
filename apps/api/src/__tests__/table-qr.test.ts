@@ -124,7 +124,8 @@ describe("GET /admin/tables/:id/qr — PNG", () => {
     });
 
     const scanned = decodeQr(res.rawPayload)!;
-    expect(new URL(scanned).searchParams.get("t")).not.toContain("42");
+    const token = new URL(scanned).searchParams.get("t")!;
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/);
     expect(scanned.toLowerCase()).not.toContain("lantai2");
   });
 

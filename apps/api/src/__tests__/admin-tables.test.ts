@@ -63,7 +63,7 @@ describe("POST /admin/tables", () => {
     const body = (
       await createTable({ number: "42", area: "Lantai2" })
     ).json<TableWithTokenResponse>();
-    expect(body.qrToken).not.toContain("42");
+    expect(body.qrToken).toMatch(/^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/);
     expect(body.qrToken.toLowerCase()).not.toContain("lantai2");
   });
 

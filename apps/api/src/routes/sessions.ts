@@ -48,4 +48,20 @@ export const sessionRoutes: FastifyPluginAsync<Options> = async (
       return paymentService.initiatePayment(owned, method);
     },
   );
+
+  // Payment status poll — the result screen falls back to this when the
+  // webhook's realtime event is missed (Midtrans_Integration_Spec §3).
+  app.get(
+    "/sessions/:sessionId/payment-status",
+    { preHandler: guard },
+    async (request) => {
+      const { sessionId } = z
+        .object({ sessionId: z.string().min(1) })
+        .parse(request.params);
+
+      const owned = request.customerSession?.sessionId ?? sessionId;
+
+      return paymentService.getPaymentStatus(owned);
+    },
+  );
 };

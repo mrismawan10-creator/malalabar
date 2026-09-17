@@ -5,10 +5,10 @@ import { config } from "../config.js";
 
 // Midtrans webhook payload schema
 const midtransWebhookSchema = z.object({
-  order_id: z.string(),
-  transaction_id: z.string(),
-  status_code: z.string(),
-  gross_amount: z.coerce.number().int().positive(),
+  order_id: z.string().min(1),
+  transaction_id: z.string().min(1),
+  status_code: z.string().min(1),
+  gross_amount: z.string().min(1),
   transaction_status: z.enum([
     "capture",
     "settlement",
@@ -17,6 +17,8 @@ const midtransWebhookSchema = z.object({
     "expire",
     "cancel",
   ]),
+  fraud_status: z.string().optional(),
+  signature_key: z.string().min(1),
 });
 
 interface Options {
@@ -33,15 +35,13 @@ export const webhookRoutes: FastifyPluginAsync<Options> = async (
    * POST /api/v1/webhooks/midtrans
    */
   app.post("/webhooks/midtrans", async (request, reply) => {
-    // Get signature from header
-    const signature = (request.headers["x-signature"] as string) || "";
-
-    // Validate and parse payload
-    const payload = midtransWebhookSchema.parse(request.body);
+    // Validate and parse payload — the signature travels in the body.
+    const { signature_key: signature, ...notification } =
+      midtransWebhookSchema.parse(request.body);
 
     // Handle webhook
     const result = await midtransWebhook.handlePaymentNotification(
-      payload,
+      notification,
       signature,
       config.MIDTRANS_SERVER_KEY,
     );

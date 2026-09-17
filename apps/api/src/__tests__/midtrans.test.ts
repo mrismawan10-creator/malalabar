@@ -17,10 +17,9 @@ describe("MidtransService", () => {
   });
 
   describe("createSnapTransaction", () => {
-    it("creates Snap transaction and returns token and transactionId", async () => {
+    it("creates Snap transaction and returns the snap token", async () => {
       const mockResponse = {
         token: "test-snap-token-abc123",
-        transaction_id: "txn-001",
         redirect_url: "https://app.sandbox.midtrans.com/snap/v2/test-snap-token-abc123",
         status_code: "201",
       };
@@ -39,7 +38,6 @@ describe("MidtransService", () => {
 
       expect(result).toEqual({
         snapToken: "test-snap-token-abc123",
-        transactionId: "txn-001",
       });
 
       expect(global.fetch).toHaveBeenCalledWith(
@@ -104,6 +102,67 @@ describe("MidtransService", () => {
         }),
       ).rejects.toThrow(
         expect.objectContaining({ code: "MIDTRANS_REQUEST_FAILED" }),
+      );
+    });
+  });
+
+  describe("checkTransactionStatus", () => {
+    it("returns the mapped status fields from the Core API", async () => {
+      (global.fetch as any).mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          order_id: "session-1",
+          transaction_id: "txn-001",
+          transaction_status: "settlement",
+          fraud_status: "accept",
+          gross_amount: "150000.00",
+        }),
+      });
+
+      const service = createMidtransService({ config: mockConfig as Config });
+      const result = await service.checkTransactionStatus("session-1");
+
+      expect(result).toEqual({
+        order_id: "session-1",
+        transaction_id: "txn-001",
+        transaction_status: "settlement",
+        fraud_status: "accept",
+        gross_amount: "150000.00",
+      });
+      expect(global.fetch).toHaveBeenCalledWith(
+        "https://api.sandbox.midtrans.com/v2/session-1/status",
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Accept: "application/json",
+          }),
+        }),
+      );
+    });
+
+    it("throws MIDTRANS_STATUS_FAILED on an error response", async () => {
+      (global.fetch as any).mockResolvedValue({
+        ok: false,
+        status: 404,
+        json: async () => ({
+          status_code: "404",
+          status_message: "Transaction doesn't exist.",
+        }),
+      });
+
+      const service = createMidtransService({ config: mockConfig as Config });
+
+      expect(service.checkTransactionStatus("session-1")).rejects.toThrow(
+        expect.objectContaining({ code: "MIDTRANS_STATUS_FAILED" }),
+      );
+    });
+
+    it("throws MIDTRANS_CONFIG_MISSING without a server key", async () => {
+      const service = createMidtransService({
+        config: { MIDTRANS_SERVER_KEY: "", MIDTRANS_IS_PRODUCTION: false } as Config,
+      });
+
+      expect(service.checkTransactionStatus("session-1")).rejects.toThrow(
+        expect.objectContaining({ code: "MIDTRANS_CONFIG_MISSING" }),
       );
     });
   });

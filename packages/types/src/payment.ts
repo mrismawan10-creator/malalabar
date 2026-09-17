@@ -63,3 +63,12 @@ export interface PaymentConfirmationResponse {
   sessionClosed: boolean;
 }
 
+/**
+ * Payment status poll — Midtrans_Integration_Spec §3
+ */
+export interface PaymentStatusResponse {
+  status: PaymentStatus;
+  /** ISO 8601 UTC, null until settled. */
+  paidAt: string | null;
+}
+

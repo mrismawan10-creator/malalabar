@@ -37,6 +37,7 @@ import { createKdsService } from "./services/kds.service.js";
 import { createPaymentService } from "./services/payment.service.js";
 import { createMidtransService } from "./services/midtrans.service.js";
 import { createMidtransWebhookService } from "./services/midtrans-webhook.service.js";
+import { createPaymentReconcileService } from "./services/payment-reconcile.service.js";
 import { createMenuAdminService } from "./services/menu-admin.service.js";
 import { createPrismaMenuAdminRepository } from "./repositories/menu-admin.repository.js";
 import { createUploadService } from "./services/upload.service.js";
@@ -190,6 +191,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
 
   const uploadService = createUploadService({ cloudinaryUrl: config.CLOUDINARY_URL });
+  const midtransService = createMidtransService({ config });
 
   await app.register(registerRoutes, {
     prefix: "/api/v1",
@@ -220,11 +222,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
     }),
     paymentService: createPaymentService({
       prisma: prisma!,
-      midtrans: createMidtransService({ config }),
+      midtrans: midtransService,
     }),
     midtransWebhook: createMidtransWebhookService({
       prisma: prisma!,
       gateway: app.gateway,
+      warn: (message) => app.log.warn(message),
     }),
     menuAdminService: createMenuAdminService({
       repo: createPrismaMenuAdminRepository(prisma!),
@@ -269,6 +272,28 @@ export async function buildApp(options: BuildAppOptions = {}) {
     const run = () => {
       void sweep.sweepOnce().catch((err: unknown) => {
         app.log.error({ err }, "session timeout sweep failed");
+      });
+    };
+    const timer = setInterval(run, 60_000);
+    timer.unref?.();
+    app.addHook("onClose", () => clearInterval(timer));
+    run();
+  }
+
+  // PENDING reconciliation — polls Midtrans for stale PENDING online payments
+  // whose webhook never arrived (Midtrans_Integration_Spec §3). Only useful
+  // when Midtrans is configured, so an empty server key disables it.
+  if (config.NODE_ENV !== "test" && config.MIDTRANS_SERVER_KEY) {
+    const reconcile = createPaymentReconcileService({
+      prisma: prisma!,
+      midtrans: midtransService,
+      gateway: app.gateway,
+      afterMins: config.RECONCILE_PENDING_AFTER_MINS,
+      warn: (message) => app.log.warn(message),
+    });
+    const run = () => {
+      void reconcile.reconcileOnce().catch((err: unknown) => {
+        app.log.error({ err }, "payment reconciliation failed");
       });
     };
     const timer = setInterval(run, 60_000);

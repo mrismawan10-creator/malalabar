@@ -5,6 +5,7 @@ import type { PaymentInitiationResponse, PaymentMethod } from "@malalabar/types"
 import { ApiClientError } from "@malalabar/ui";
 import type { Socket } from "socket.io-client";
 import { formatRupiah } from "@/lib/format";
+import { config } from "@/config";
 
 interface PaymentModalProps {
   sessionId: string;
@@ -39,15 +40,17 @@ export function PaymentModal({
     useState<PaymentInitiationResponse | null>(null);
 
   const snapScriptRef = useRef<boolean>(false);
-  const snapInstanceRef = useRef<any>(null);
 
   // Load Midtrans Snap library for ONLINE payments
   useEffect(() => {
     if (!window.snap && !snapScriptRef.current) {
       snapScriptRef.current = true;
       const script = document.createElement("script");
-      script.src = "https://app.sandbox.midtrans.com/snap/snap.js";
+      script.src = config.midtransSnapUrl;
       script.async = true;
+      if (config.midtransClientKey) {
+        script.setAttribute("data-client-key", config.midtransClientKey);
+      }
       document.body.appendChild(script);
     }
   }, []);
@@ -124,6 +127,44 @@ export function PaymentModal({
       socket.off("payment:failed", handlePaymentFailed);
     };
   }, [socket, onPaymentConfirmed]);
+
+  const onConfirmedRef = useRef(onPaymentConfirmed);
+  useEffect(() => {
+    onConfirmedRef.current = onPaymentConfirmed;
+  }, [onPaymentConfirmed]);
+
+  // Poll for settlement when the Snap redirect and/or the webhook event is
+  // lost (Midtrans_Integration_Spec §3).
+  useEffect(() => {
+    if (!paymentResponse || selectedMethod !== "ONLINE") return;
+
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      try {
+        const status = await apiClient.getPaymentStatus(
+          sessionId,
+          sessionToken,
+        );
+        if (cancelled) return;
+
+        if (status.status === "PAID") {
+          clearInterval(timer);
+          onConfirmedRef.current();
+        } else if (status.status === "FAILED" || status.status === "EXPIRED") {
+          clearInterval(timer);
+          setError("Pembayaran gagal atau kedaluwarsa. Silakan coba lagi.");
+          setPaymentResponse(null);
+        }
+      } catch {
+        // Transient network failures are expected on mobile — keep polling.
+      }
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [paymentResponse, selectedMethod, apiClient, sessionId, sessionToken]);
 
   // Render based on payment method
   if (paymentResponse && selectedMethod === "ONLINE") {

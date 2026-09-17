@@ -237,7 +237,19 @@ res (ONLINE): {
         midtrans: { snapToken, redirectUrl }
       }
 ```
-409 if session not OPEN or a non-failed payment already exists.
+409 if session not OPEN or a non-failed payment already exists. A `FAILED`/`EXPIRED`
+payment is reused in place (`Payment.sessionId` is unique), so the customer can retry
+within the same session.
+
+### `GET /sessions/:sessionId/payment-status`
+Poll used by the customer result screen when the `payment:confirmed` realtime event is
+missed (Midtrans_Integration_Spec §3). Scoped to the token's own session — a mismatched
+`:sessionId` is 403; 404 before any payment is initiated.
+```
+res:  { status: "PENDING"|"PAID"|"FAILED"|"EXPIRED", paidAt: string|null }
+```
+The Snap redirect alone never flips state; only the webhook — or the scheduled
+reconciliation sweep when the webhook is lost — settles a payment.
 
 ### `GET /sessions/:sessionId/receipt`
 After payment confirmed. Digital receipt.

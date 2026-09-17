@@ -71,6 +71,14 @@ const result = envSchema
           "must be set to the public KDS app origin in production (provisioning QR codes embed it)",
       });
     }
+
+    if (env.MIDTRANS_IS_PRODUCTION && !env.MIDTRANS_SERVER_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["MIDTRANS_SERVER_KEY"],
+        message: "must be set when MIDTRANS_IS_PRODUCTION is true",
+      });
+    }
   })
   .safeParse(process.env);
 

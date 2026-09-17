@@ -9,6 +9,7 @@ import type {
   PaymentInitiationRequest,
   PaymentInitiationResponse,
   PaymentMethod,
+  PaymentStatusResponse,
 } from "@malalabar/types";
 
 export interface HealthResponse {
@@ -116,6 +117,13 @@ export function createApiClient(baseUrl: string) {
 
     getBill: (sessionId: string, token: string) =>
       request<BillResponse>(`/sessions/${encodeURIComponent(sessionId)}/bill`, { token }),
+
+    /** Polls the settled state when the webhook's realtime event is missed. */
+    getPaymentStatus: (sessionId: string, token: string) =>
+      request<PaymentStatusResponse>(
+        `/sessions/${encodeURIComponent(sessionId)}/payment-status`,
+        { token },
+      ),
   };
 }
 

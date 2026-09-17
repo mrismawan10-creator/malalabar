@@ -1,4 +1,8 @@
-import type { PaymentMethod, PaymentInitiationResponse } from "@malalabar/types";
+import type {
+  PaymentMethod,
+  PaymentInitiationResponse,
+  PaymentStatus,
+} from "@malalabar/types";
 import { AppError } from "../lib/errors.js";
 import type { PrismaClient } from "@malalabar/db";
 import type { MidtransService } from "./midtrans.service.js";
@@ -8,6 +12,10 @@ export interface PaymentService {
     sessionId: string,
     method: PaymentMethod,
   ): Promise<PaymentInitiationResponse>;
+
+  getPaymentStatus(
+    sessionId: string,
+  ): Promise<{ status: PaymentStatus; paidAt: Date | null }>;
 }
 
 export function createPaymentService(deps: {
@@ -132,6 +140,13 @@ export function createPaymentService(deps: {
         taxAmount,
         serviceAmount,
         totalAmount,
+        midtransOrderId: null,
+        midtransToken: null,
+        midtransRaw: null,
+        cashReceived: null,
+        changeAmount: null,
+        confirmedById: null,
+        paidAt: null,
       };
 
       // For ONLINE payments, call Midtrans first
@@ -144,23 +159,38 @@ export function createPaymentService(deps: {
           customerName: `Table ${session.table.number}`,
         });
 
-        paymentData.midtransOrderId = midtransResult.transactionId;
+        paymentData.midtransOrderId = sessionId;
         midtransToken = midtransResult.snapToken;
         paymentData.midtransToken = midtransToken;
       }
 
-      // Create payment with frozen amounts
-      const payment = await prisma.payment.create({
-        data: paymentData as any,
-        select: {
-          id: true,
-          method: true,
-          status: true,
-          totalAmount: true,
-          createdAt: true,
-          midtransToken: true,
-        },
-      });
+      // Create payment with frozen amounts. A FAILED/EXPIRED payment is reused
+      // in place: Payment.sessionId is unique, and the spec lets the customer
+      // retry within the same session.
+      const payment = existingPayment
+        ? await prisma.payment.update({
+            where: { id: existingPayment.id },
+            data: paymentData as any,
+            select: {
+              id: true,
+              method: true,
+              status: true,
+              totalAmount: true,
+              createdAt: true,
+              midtransToken: true,
+            },
+          })
+        : await prisma.payment.create({
+            data: paymentData as any,
+            select: {
+              id: true,
+              method: true,
+              status: true,
+              totalAmount: true,
+              createdAt: true,
+              midtransToken: true,
+            },
+          });
 
       const paymentInfo = {
         id: payment.id,
@@ -191,6 +221,23 @@ export function createPaymentService(deps: {
           },
         };
       }
+    },
+
+    async getPaymentStatus(sessionId) {
+      const payment = await deps.prisma.payment.findUnique({
+        where: { sessionId },
+        select: { status: true, paidAt: true },
+      });
+
+      if (!payment) {
+        throw new AppError(
+          "PAYMENT_NOT_FOUND",
+          "Pembayaran tidak ditemukan",
+          404,
+        );
+      }
+
+      return { status: payment.status, paidAt: payment.paidAt };
     },
   };
 }

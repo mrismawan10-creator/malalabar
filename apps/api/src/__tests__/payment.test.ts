@@ -17,6 +17,7 @@ describe("Payment Service", () => {
       payment: {
         findUnique: vi.fn(),
         create: vi.fn(),
+        update: vi.fn(),
       } as any,
       systemSettings: {
         findUnique: vi.fn(),
@@ -123,7 +124,6 @@ describe("Payment Service", () => {
 
       (mockMidtrans.createSnapTransaction as any).mockResolvedValue({
         snapToken: "test-snap-token",
-        transactionId: "txn-001",
       });
 
       (mockPrisma.payment!.create as any).mockResolvedValue({
@@ -164,6 +164,101 @@ describe("Payment Service", () => {
       expect(service.initiatePayment(sessionId, "CASH")).rejects.toThrow(
         expect.objectContaining({
           code: "SESSION_NOT_OPEN",
+        }),
+      );
+    });
+
+    it("reuses a FAILED payment row in place (sessionId is unique)", async () => {
+      const sessionId = "session-1";
+      const subtotal = 100000;
+
+      (mockPrisma.tableSession!.findUnique as any).mockResolvedValue({
+        id: sessionId,
+        status: "OPEN",
+        table: { number: "5" },
+        orders: [{ items: [{ lineTotal: subtotal }] }],
+      });
+
+      (mockPrisma.payment!.findUnique as any).mockResolvedValue({
+        id: "payment-1",
+        status: "FAILED",
+      });
+
+      (mockPrisma.systemSettings!.findUnique as any).mockResolvedValue({
+        id: "singleton",
+        taxEnabled: false,
+        taxPercent: 0,
+        serviceEnabled: false,
+        servicePercent: 0,
+        cashEnabled: true,
+        cardEnabled: true,
+        onlineEnabled: true,
+      });
+
+      (mockPrisma.payment!.update as any).mockResolvedValue({
+        id: "payment-1",
+        method: "ONLINE",
+        status: "PENDING",
+        totalAmount: subtotal,
+        midtransToken: "test-snap-token",
+        createdAt: new Date().toISOString(),
+      });
+
+      (mockMidtrans.createSnapTransaction as any).mockResolvedValue({
+        snapToken: "test-snap-token",
+      });
+
+      const service = createPaymentService({
+        prisma: mockPrisma as PrismaClient,
+        midtrans: mockMidtrans as MidtransService,
+      });
+      await service.initiatePayment(sessionId, "ONLINE");
+
+      expect(mockPrisma.payment!.create).not.toHaveBeenCalled();
+      expect(mockPrisma.payment!.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "payment-1" },
+          data: expect.objectContaining({
+            sessionId,
+            status: "PENDING",
+            midtransOrderId: sessionId,
+          }),
+        }),
+      );
+    });
+  });
+
+  describe("getPaymentStatus", () => {
+    it("returns the stored status and paidAt", async () => {
+      const paidAt = new Date("2026-01-01T10:00:00.000Z");
+      (mockPrisma.payment!.findUnique as any).mockResolvedValue({
+        status: "PAID",
+        paidAt,
+      });
+
+      const service = createPaymentService({
+        prisma: mockPrisma as PrismaClient,
+        midtrans: mockMidtrans as MidtransService,
+      });
+
+      await expect(service.getPaymentStatus("session-1")).resolves.toEqual({
+        status: "PAID",
+        paidAt,
+      });
+    });
+
+    it("throws 404 when no payment exists yet", async () => {
+      (mockPrisma.payment!.findUnique as any).mockResolvedValue(null);
+
+      const service = createPaymentService({
+        prisma: mockPrisma as PrismaClient,
+        midtrans: mockMidtrans as MidtransService,
+      });
+
+      await expect(service.getPaymentStatus("session-1")).rejects.toThrow(
+        expect.objectContaining({
+          code: "PAYMENT_NOT_FOUND",
+          statusCode: 404,
         }),
       );
     });

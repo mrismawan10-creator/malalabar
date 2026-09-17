@@ -1,5 +1,14 @@
 import { AppError } from "../lib/errors.js";
 import type { Config } from "../config.js";
+import type { MidtransTransactionStatus } from "../lib/payment-outcome.js";
+
+export interface MidtransTransactionStatusResponse {
+  order_id: string;
+  transaction_id: string;
+  transaction_status: MidtransTransactionStatus;
+  fraud_status?: string;
+  gross_amount: string;
+}
 
 export interface MidtransService {
   createSnapTransaction(params: {
@@ -7,16 +16,38 @@ export interface MidtransService {
     amount: number;
     customerName: string;
     customerEmail?: string;
-  }): Promise<{ snapToken: string; transactionId: string }>;
+  }): Promise<{ snapToken: string }>;
+
+  /** Core API status check — the authoritative fallback when a webhook is lost. */
+  checkTransactionStatus(
+    orderId: string,
+  ): Promise<MidtransTransactionStatusResponse>;
 }
 
 export function createMidtransService(deps: {
   config: Config;
 }): MidtransService {
   // Snap API endpoint — sandbox or production based on env
-  const baseUrl = deps.config.MIDTRANS_IS_PRODUCTION
+  const snapBaseUrl = deps.config.MIDTRANS_IS_PRODUCTION
     ? "https://app.midtrans.com/snap/v1"
     : "https://app.sandbox.midtrans.com/snap/v1";
+
+  const coreBaseUrl = deps.config.MIDTRANS_IS_PRODUCTION
+    ? "https://api.midtrans.com/v2"
+    : "https://api.sandbox.midtrans.com/v2";
+
+  const authHeader = () =>
+    `Basic ${Buffer.from(`${deps.config.MIDTRANS_SERVER_KEY}:`).toString("base64")}`;
+
+  const requireServerKey = () => {
+    if (!deps.config.MIDTRANS_SERVER_KEY) {
+      throw new AppError(
+        "MIDTRANS_CONFIG_MISSING",
+        "Midtrans tidak dikonfigurasi",
+        503,
+      );
+    }
+  };
 
   return {
     async createSnapTransaction({
@@ -25,18 +56,7 @@ export function createMidtransService(deps: {
       customerName,
       customerEmail,
     }) {
-      if (!deps.config.MIDTRANS_SERVER_KEY) {
-        throw new AppError(
-          "MIDTRANS_CONFIG_MISSING",
-          "Midtrans tidak dikonfigurasi",
-          503,
-        );
-      }
-
-      // Base64 encode server key for Basic Auth
-      const auth = Buffer.from(`${deps.config.MIDTRANS_SERVER_KEY}:`).toString(
-        "base64",
-      );
+      requireServerKey();
 
       // Snap API request body (https://docs.midtrans.com/en/snap/overview)
       const snapParams = {
@@ -51,19 +71,19 @@ export function createMidtransService(deps: {
       };
 
       try {
-        const response = await fetch(`${baseUrl}/transactions`, {
+        const response = await fetch(`${snapBaseUrl}/transactions`, {
           method: "POST",
           headers: {
-            Authorization: `Basic ${auth}`,
+            Authorization: authHeader(),
             "Content-Type": "application/json",
           },
           body: JSON.stringify(snapParams),
+          signal: AbortSignal.timeout(10_000),
         });
 
         const data = (await response.json()) as {
           token?: string;
           redirect_url?: string;
-          transaction_id?: string;
           status_code?: string;
           status_message?: string;
           error_id?: string;
@@ -78,7 +98,7 @@ export function createMidtransService(deps: {
           );
         }
 
-        if (!data.token || !data.transaction_id) {
+        if (!data.token) {
           throw new AppError(
             "MIDTRANS_INVALID_RESPONSE",
             "Midtrans returned invalid response",
@@ -88,7 +108,6 @@ export function createMidtransService(deps: {
 
         return {
           snapToken: data.token,
-          transactionId: data.transaction_id,
         };
       } catch (err: unknown) {
         if (err instanceof AppError) {
@@ -96,6 +115,63 @@ export function createMidtransService(deps: {
         }
 
         // Network or parsing error
+        throw new AppError(
+          "MIDTRANS_REQUEST_FAILED",
+          "Gagal terhubung ke Midtrans",
+          502,
+        );
+      }
+    },
+
+    async checkTransactionStatus(orderId) {
+      requireServerKey();
+
+      try {
+        const response = await fetch(
+          `${coreBaseUrl}/${encodeURIComponent(orderId)}/status`,
+          {
+            headers: {
+              Authorization: authHeader(),
+              Accept: "application/json",
+            },
+            signal: AbortSignal.timeout(8_000),
+          },
+        );
+
+        const data = (await response.json()) as {
+          order_id?: string;
+          transaction_id?: string;
+          transaction_status?: MidtransTransactionStatus;
+          fraud_status?: string;
+          gross_amount?: string;
+          status_message?: string;
+        };
+
+        if (
+          !response.ok ||
+          !data.transaction_status ||
+          !data.order_id ||
+          data.gross_amount === undefined
+        ) {
+          throw new AppError(
+            "MIDTRANS_STATUS_FAILED",
+            `Midtrans status check failed: ${data.status_message || response.status}`,
+            502,
+          );
+        }
+
+        return {
+          order_id: data.order_id,
+          transaction_id: data.transaction_id ?? "",
+          transaction_status: data.transaction_status,
+          fraud_status: data.fraud_status,
+          gross_amount: data.gross_amount,
+        };
+      } catch (err: unknown) {
+        if (err instanceof AppError) {
+          throw err;
+        }
+
         throw new AppError(
           "MIDTRANS_REQUEST_FAILED",
           "Gagal terhubung ke Midtrans",

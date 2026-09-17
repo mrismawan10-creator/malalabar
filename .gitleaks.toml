@@ -1,0 +1,7 @@
+title = "malalabar"
+
+[allowlist]
+description = "Committed .env.example files hold documented placeholders, not secrets"
+paths = [
+  '''\.env\.example$''',
+]

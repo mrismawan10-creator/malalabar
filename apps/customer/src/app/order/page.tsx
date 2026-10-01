@@ -40,6 +40,8 @@ const QR_FAILURES: Record<string, string> = {
     "Kode QR ini sudah diganti. Scan ulang kode terbaru di meja Anda.",
   TABLE_INACTIVE: "Meja ini sedang tidak tersedia. Silakan hubungi staf kami.",
   SETTINGS_MISSING: "Restoran belum siap menerima pesanan.",
+  ORDERING_PAUSED:
+    "Pesanan sedang ditutup sementara. Silakan coba kembali nanti.",
 };
 
 type View = "menu" | "checkout" | "tracking";
@@ -467,6 +469,18 @@ function OrderScreen() {
         </div>
       </header>
 
+      {!menu.acceptingOrders && (
+        <div
+          className="mx-4 mt-3 rounded-lg border-2 border-warning bg-warning/10 p-3 text-sm text-warning-ink"
+          role="status"
+        >
+          <p className="font-semibold">Pesanan sedang ditutup sementara</p>
+          <p className="mt-1">
+            Restoran sedang tutup atau menangani pesanan yang ramai. Silakan coba lagi nanti.
+          </p>
+        </div>
+      )}
+
       {(hasBill || tracked.length > 0) && (
         <div className="mx-4 mt-3 flex gap-2">
           {hasBill && (
@@ -553,6 +567,7 @@ function OrderScreen() {
           item={detail}
           loading={detailLoading}
           error={detailError}
+          acceptingOrders={menu.acceptingOrders}
           onClose={() => setOpenItemId(null)}
           onAddToCart={(cartItem) => {
             cart.addItem(cartItem);
@@ -568,6 +583,7 @@ function OrderScreen() {
           totalPrice={cart.totalPrice}
           sessionId={active.session.id}
           sessionToken={active.sessionToken}
+          acceptingOrders={menu.acceptingOrders}
           onClose={() => setIsCartOpen(false)}
           onRemoveItem={cart.removeItem}
           onUpdateQuantity={cart.updateQuantity}

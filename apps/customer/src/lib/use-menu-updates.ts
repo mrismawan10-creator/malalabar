@@ -1,6 +1,11 @@
 import { useEffect } from "react";
 import { io, type Socket } from "socket.io-client";
-import type { MenuAvailabilityPayload, MenuPromoPayload, MenuResponse } from "@malalabar/types";
+import type {
+  MenuAvailabilityPayload,
+  MenuOrderingPayload,
+  MenuPromoPayload,
+  MenuResponse,
+} from "@malalabar/types";
 import { config } from "@/config";
 
 export function useMenuUpdates(
@@ -48,6 +53,10 @@ export function useMenuUpdates(
             : null;
         }
         onMenuUpdate(updated);
+      });
+
+      socket.on("menu:ordering", (payload: MenuOrderingPayload) => {
+        onMenuUpdate({ ...currentMenu, acceptingOrders: payload.acceptingOrders });
       });
     } catch (err) {
       console.error("Socket.io connection failed:", err);

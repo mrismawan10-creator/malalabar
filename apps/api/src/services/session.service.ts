@@ -144,7 +144,22 @@ export function createSessionService(deps: {
         );
       }
 
-      const session = await findOrCreateOpenSession(table.id);
+      let session: TableSession;
+      if (settings.acceptingOrders) {
+        session = await findOrCreateOpenSession(table.id);
+      } else {
+        // Keep existing tables able to resume billing/tracking, but do not
+        // create empty sessions that would occupy tables while ordering is off.
+        const existing = await deps.sessions.findOpenByTableId(table.id);
+        if (!existing) {
+          throw new AppError(
+            "ORDERING_PAUSED",
+            "Pemesanan sedang ditutup sementara. Silakan coba kembali nanti.",
+            409,
+          );
+        }
+        session = existing;
+      }
 
       const timeoutMins =
         settings.sessionTimeoutMins > 0

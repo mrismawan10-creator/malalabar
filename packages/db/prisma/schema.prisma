@@ -365,6 +365,7 @@ model SystemSettings {
   logoUrl            String?
   description        String?
   openingHours       Json?
+  acceptingOrders    Boolean  @default(true)
   taxPercent         Int      @default(0)
   taxEnabled         Boolean  @default(false)
   servicePercent     Int      @default(0)

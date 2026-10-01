@@ -70,8 +70,9 @@ Notes:
 |---|---|---|---|
 | `menu:availability` | `menu` | Admin toggles availability (single or bulk) | `{ items: [ { menuItemId, isAvailable } ] }` |
 | `menu:promo` | `menu` | Admin toggles/edits a promo | `{ menuItemId, promo: { promoPrice, label, discountPercent } | null }` |
+| `menu:ordering` | `menu` | Admin pauses or resumes restaurant-wide order acceptance | `{ acceptingOrders }` |
 
-The customer app updates item cards in place (grey overlay / HABIS, or promo badge) without reload — PRD 4.2.2 real-time requirement. Bulk toggle emits one event with an array, not N events.
+The customer app updates item cards in place (grey overlay / HABIS, or promo badge) without reload — PRD 4.2.2 real-time requirement. It also updates the restaurant-wide ordering banner and disables or re-enables cart submission. Bulk toggle emits one event with an array, not N events.
 
 ### 3.3 Payment & session
 
@@ -134,6 +135,7 @@ passed explicitly as the first argument.
 | `orderCancelled(sessionId, payload)` | `order:cancelled` | `session:{sessionId}`, `cashier`, `kds` |
 | `menuAvailabilityChanged(payload)` | `menu:availability` | `menu` |
 | `menuPromoChanged(payload)` | `menu:promo` | `menu` |
+| `menuOrderingChanged(payload)` | `menu:ordering` | `menu` |
 | `paymentConfirmed(payload)` | `payment:confirmed` | `session:{payload.sessionId}`, `cashier` |
 | `paymentFailed(payload)` | `payment:failed` | `session:{payload.sessionId}` |
 | `sessionClosed(payload)` | `session:closed` | `session:{payload.sessionId}`, `cashier` |
@@ -155,6 +157,7 @@ exposes read-only `roomSize(room)` and `connectionCount()` for health checks and
 | `order:cancelled` | ✅ | ✅ | ✅ | |
 | `menu:availability` | | | | ✅ |
 | `menu:promo` | | | | ✅ |
+| `menu:ordering` | | | | ✅ |
 | `payment:confirmed` | ✅ | ✅ | | |
 | `payment:failed` | ✅ | | | |
 | `session:closed` | ✅ | ✅ | | |

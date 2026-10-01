@@ -3,6 +3,7 @@ import { Server as SocketIoServer } from "socket.io";
 import type {
   ClientToServerEvents,
   MenuAvailabilityPayload,
+  MenuOrderingPayload,
   MenuPromoPayload,
   OrderApprovedPayload,
   OrderCancelledPayload,
@@ -138,6 +139,11 @@ export class RealtimeGateway {
   /** Promo toggled or edited; `promo: null` when disabled or deleted. */
   menuPromoChanged(payload: MenuPromoPayload): void {
     this.io.to(ROOM.MENU).emit("menu:promo", payload);
+  }
+
+  /** Restaurant paused or resumed new customer orders. */
+  menuOrderingChanged(payload: MenuOrderingPayload): void {
+    this.io.to(ROOM.MENU).emit("menu:ordering", payload);
   }
 
   // ── Payment & session (Realtime_Events §3.3) ───────────────────────────────

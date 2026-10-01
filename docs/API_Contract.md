@@ -96,6 +96,7 @@ table joins the *same* OPEN session and shares one bill (SDD_Core §5.1).
 | 400 | `INVALID_TABLE_TOKEN` | Signature does not verify — not a QR this server minted |
 | 409 | `QR_REGENERATED` | Correctly signed but no longer stored: the QR was rotated |
 | 409 | `TABLE_INACTIVE` | Table is deactivated (PRD 4.1.1) |
+| 409 | `ORDERING_PAUSED` | Ordering is paused and this table has no existing OPEN session |
 | 503 | `SETTINGS_MISSING` | SystemSettings singleton absent — restaurant not configured |
 
 The session token's lifetime tracks `SystemSettings.sessionTimeoutMins`, so a dead
@@ -121,9 +122,10 @@ res:  { token, device: { id, label } }
 All require the customer session token; the server scopes every action to that token's `sessionId`.
 
 ### `GET /menu`
-Full menu for the customer app: active promos, categories (ordered), available items.
+Full menu for the customer app: `acceptingOrders`, active promos, categories (ordered), available items.
 ```
 res:  {
+        acceptingOrders: boolean,
         promos: [ { menuItemId, itemName, imageUrl, basePrice, promoPrice, label, discountPercent } ],
         categories: [ { id, name, icon, sortOrder } ],
         items: [ {
@@ -185,6 +187,7 @@ keys, so `price`/`lineTotal` never reach business logic (CLAUDE.md §5.2, §5.3)
 | Status | Code | When |
 |---|---|---|
 | 400 | `VALIDATION_ERROR` | Empty `items`, quantity outside 1–99, malformed body |
+| 409 | `ORDERING_PAUSED` | Restaurant is temporarily not accepting new orders |
 | 422 | `ITEM_UNAVAILABLE` | A sold-out item is included |
 | 422 | `ITEM_NOT_FOUND` | Unknown or soft-deleted `menuItemId` |
 | 422 | `REQUIRED_OPTION_MISSING` | A required group has no selection |
@@ -599,6 +602,20 @@ PATCH  /superadmin/settings   { restaurantName?, logoUrl?, description?, opening
   returns 422 `PAYMENT_METHOD_DISABLED` for a disabled method. Theme color
   reaches the customer app via the boot settings.
 - Every change writes an `UPDATE_SETTINGS` audit row (hard rule 9).
+
+### Restaurant order acceptance
+```
+GET    /admin/order-acceptance
+PATCH  /admin/order-acceptance   { acceptingOrders: boolean }
+```
+- ADMIN and SUPERADMIN can pause or resume new customer orders with one action.
+  The menu payload exposes the current `acceptingOrders` state and the API emits
+  `menu:ordering` so connected customers update immediately.
+- While paused, menu browsing, existing bills, and order tracking remain
+  available, but adding items and submitting new batches is disabled. A direct
+  `POST /sessions/:id/orders` returns 409 `ORDERING_PAUSED`.
+- Changes are written to the system-settings singleton and audited as
+  `UPDATE_ORDER_ACCEPTANCE`.
 
 ### Order status stages (data-driven flow — PRD 4.7.3)
 ```

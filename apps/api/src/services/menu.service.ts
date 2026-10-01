@@ -4,6 +4,7 @@ import type {
   MenuResponse,
 } from "@malalabar/types";
 import { AppError } from "../lib/errors.js";
+import type { SettingsRepository } from "../repositories/session.repository.js";
 import type {
   MenuItemPromoRow,
   MenuRepository,
@@ -40,16 +41,29 @@ export interface MenuService {
   getItem(id: string): Promise<MenuItemDetail>;
 }
 
-export function createMenuService(repo: MenuRepository): MenuService {
+export function createMenuService(
+  repo: MenuRepository,
+  settingsRepo: SettingsRepository,
+): MenuService {
   return {
     async getMenu() {
-      const [categories, items, promos] = await Promise.all([
+      const [categories, items, promos, settings] = await Promise.all([
         repo.listCategories(),
         repo.listItems(),
         repo.listActivePromos(),
+        settingsRepo.get(),
       ]);
 
+      if (!settings) {
+        throw new AppError(
+          "SETTINGS_MISSING",
+          "Restoran belum dikonfigurasi",
+          503,
+        );
+      }
+
       return {
+        acceptingOrders: settings.acceptingOrders,
         promos: promos.map((promo) => ({
           menuItemId: promo.menuItemId,
           itemName: promo.itemName,

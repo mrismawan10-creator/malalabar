@@ -21,6 +21,7 @@ import type { StageAdminService } from "../services/stage-admin.service.js";
 import type { SuperadminOverrideService } from "../services/superadmin-override.service.js";
 import type { SuperadminAuditService } from "../services/superadmin-audit.service.js";
 import type { KitchenDeviceAdminService } from "../services/kitchen-device-admin.service.js";
+import type { OrderAcceptanceService } from "../services/order-acceptance.service.js";
 import { adminCategoryRoutes } from "./admin/categories.js";
 import { adminCustomizationRoutes } from "./admin/customizations.js";
 import { adminMenuRoutes } from "./admin/menu.js";
@@ -29,6 +30,7 @@ import { adminTableRoutes } from "./admin/tables.js";
 import { adminUploadRoutes } from "./admin/uploads.js";
 import { adminAnalyticsRoutes } from "./admin/analytics.js";
 import { adminReportRoutes } from "./admin/reports.js";
+import { adminOrderAcceptanceRoutes } from "./admin/order-acceptance.js";
 import { superadminStaffRoutes } from "./superadmin/staff.js";
 import { superadminSettingsRoutes } from "./superadmin/settings.js";
 import { superadminStageRoutes } from "./superadmin/stages.js";
@@ -66,6 +68,7 @@ export interface RouteOptions {
   overrideService: SuperadminOverrideService;
   auditService: SuperadminAuditService;
   kitchenDeviceAdminService: KitchenDeviceAdminService;
+  orderAcceptanceService: OrderAcceptanceService;
   sessionRepository: SessionRepository;
   tableRepository: TableRepository;
 }
@@ -114,6 +117,10 @@ export const registerRoutes: FastifyPluginAsync<RouteOptions> = async (
   await app.register(adminReportRoutes, {
     prefix: "/admin",
     reportService: opts.reportService,
+  });
+  await app.register(adminOrderAcceptanceRoutes, {
+    prefix: "/admin",
+    orderAcceptance: opts.orderAcceptanceService,
   });
   await app.register(superadminStaffRoutes, {
     prefix: "/superadmin",

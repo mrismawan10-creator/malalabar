@@ -10,12 +10,14 @@ export function ItemDetailModal({
   item,
   loading,
   error,
+  acceptingOrders,
   onClose,
   onAddToCart,
 }: {
   item: MenuItemDetail | null;
   loading: boolean;
   error: string | null;
+  acceptingOrders: boolean;
   onClose: () => void;
   onAddToCart?: (cartItem: CartItem) => void;
 }) {
@@ -267,6 +269,15 @@ export function ItemDetailModal({
               <p className="text-base text-ink-soft">{item.description}</p>
             )}
 
+            {!acceptingOrders && (
+              <p
+                className="rounded-md border-2 border-warning bg-warning/10 p-3 text-sm text-warning-ink"
+                role="status"
+              >
+                Pesanan sedang ditutup sementara. Silakan coba lagi nanti.
+              </p>
+            )}
+
             {item.customizationGroups.map((group) => (
               <section key={group.id} className="flex flex-col gap-2">
                 <h3 className="flex flex-wrap items-center gap-2 text-lg font-semibold text-ink">
@@ -402,10 +413,10 @@ export function ItemDetailModal({
           <button
             type="button"
             onClick={handleAddToCart}
-            disabled={!item.isAvailable}
+            disabled={!item.isAvailable || !acceptingOrders}
             className="w-full rounded-lg border-2 border-accent bg-accent px-4 py-3 font-bold text-white transition-transform active:translate-x-[2px] active:translate-y-[2px] disabled:opacity-50 motion-reduce:active:translate-x-0 motion-reduce:active:translate-y-0"
           >
-            Tambah ke Keranjang
+            {acceptingOrders ? "Tambah ke Keranjang" : "Pesanan Ditutup"}
           </button>
         </div>
       </div>

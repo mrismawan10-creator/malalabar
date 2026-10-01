@@ -86,6 +86,7 @@ export function createFakeSettingsRepository(
     logoUrl: null,
     description: null,
     openingHours: null,
+    acceptingOrders: true,
     taxPercent: 11,
     taxEnabled: true,
     servicePercent: 5,

@@ -60,6 +60,7 @@ import { createStaffStatusChecker } from "./lib/staff-status.js";
 import type { KitchenDeviceStatusChecker } from "./lib/kitchen-device-status.js";
 import { createKitchenDeviceStatusChecker } from "./lib/kitchen-device-status.js";
 import { createKitchenDeviceAdminService } from "./services/kitchen-device-admin.service.js";
+import { createOrderAcceptanceService } from "./services/order-acceptance.service.js";
 import { registerRoutes } from "./routes/index.js";
 
 export interface BuildAppOptions {
@@ -201,7 +202,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       sessions: sessionRepository,
       settings: settingsRepository,
     }),
-    menuService: createMenuService(menuRepository),
+    menuService: createMenuService(menuRepository, settingsRepository),
     orderService: createOrderService({
       orders: orderRepository,
       settings: settingsRepository,
@@ -255,6 +256,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
     kitchenDeviceAdminService: createKitchenDeviceAdminService({
       devices: kitchenDeviceRepository,
       staff: staffRepository,
+    }),
+    orderAcceptanceService: createOrderAcceptanceService({
+      settings: settingsRepository,
+      gateway: app.gateway,
     }),
     sessionRepository,
     tableRepository,

@@ -49,3 +49,8 @@ export interface UpdateSettingsRequest {
   cardEnabled?: boolean;
   onlineEnabled?: boolean;
 }
+
+/** Current restaurant-wide ability to accept new customer order batches. */
+export interface OrderAcceptanceStatus {
+  acceptingOrders: boolean;
+}

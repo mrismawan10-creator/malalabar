@@ -13,6 +13,7 @@ import {
 
 let app: FastifyInstance;
 let sessions: ReturnType<typeof createFakeSessionRepository>;
+let settings: ReturnType<typeof createFakeSettingsRepository>;
 let token: string;
 let sessionId: string;
 
@@ -34,10 +35,11 @@ function getAnon(url: string) {
 
 beforeEach(async () => {
   sessions = createFakeSessionRepository();
+  settings = createFakeSettingsRepository();
   app = await buildApp({
     tableRepository: createFakeTableRepository(),
     sessionRepository: sessions,
-    settingsRepository: createFakeSettingsRepository(),
+    settingsRepository: settings,
     menuRepository: createFakeMenuRepository(),
   });
   await app.ready();
@@ -72,6 +74,13 @@ describe("GET /menu — access control", () => {
 });
 
 describe("GET /menu — payload", () => {
+  it("returns whether the restaurant is accepting orders", async () => {
+    expect((await get(MENU)).json<MenuResponse>().acceptingOrders).toBe(true);
+
+    await settings.update({ acceptingOrders: false });
+    expect((await get(MENU)).json<MenuResponse>().acceptingOrders).toBe(false);
+  });
+
   it("returns promos, ordered categories and items (happy path)", async () => {
     const res = await get(MENU);
     expect(res.statusCode).toBe(200);

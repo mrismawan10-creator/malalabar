@@ -396,6 +396,7 @@ model SystemSettings {
   logoUrl            String?
   description        String?
   openingHours       Json?                              // structured hours
+  acceptingOrders    Boolean @default(true)              // temporary restaurant-wide order pause
   taxPercent         Int     @default(0)                // basis points or whole %? -> whole %, see §3.6
   taxEnabled         Boolean @default(false)
   servicePercent     Int     @default(0)
@@ -463,6 +464,7 @@ The line total is frozen on the row so receipts and reports never recompute agai
 
 ### 3.8 `SystemSettings` single-row pattern
 Fixed `id = "singleton"` guarantees exactly one settings row. Seed it on first boot. The app reads settings through a cached accessor (Redis), invalidated on update.
+`acceptingOrders` is the one-click operational switch for temporarily pausing all new customer order batches; it defaults to true. Existing bills and order tracking remain available while paused.
 
 ---
 

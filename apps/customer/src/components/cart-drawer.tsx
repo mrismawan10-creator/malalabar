@@ -13,6 +13,7 @@ export function CartDrawer({
   totalPrice,
   sessionId,
   sessionToken,
+  acceptingOrders,
   onClose,
   onRemoveItem,
   onUpdateQuantity,
@@ -23,6 +24,7 @@ export function CartDrawer({
   totalPrice: number;
   sessionId: string;
   sessionToken: string;
+  acceptingOrders: boolean;
   onClose: () => void;
   onRemoveItem: (index: number) => void;
   onUpdateQuantity: (index: number, quantity: number) => void;
@@ -180,6 +182,15 @@ export function CartDrawer({
           </div>
         )}
 
+        {!acceptingOrders && (
+          <div
+            className="border-t-3 border-warning bg-warning/10 p-3 text-center text-sm text-warning-ink"
+            role="status"
+          >
+            Pesanan sedang ditutup sementara. Keranjang Anda tetap tersimpan.
+          </div>
+        )}
+
         {items.length > 0 && (
           <div className="border-t-3 border-ink-line bg-surface-page p-4">
             <div className="mb-3 flex items-center justify-between">
@@ -191,10 +202,14 @@ export function CartDrawer({
             <button
               type="button"
               onClick={handleSubmitOrder}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !acceptingOrders}
               className="w-full rounded-lg border-2 border-accent bg-accent px-4 py-3 font-bold text-white transition-transform disabled:opacity-50 active:translate-x-[2px] active:translate-y-[2px] motion-reduce:active:translate-x-0 motion-reduce:active:translate-y-0"
             >
-              {isSubmitting ? "Mengirim…" : "Pesan Sekarang"}
+              {isSubmitting
+                ? "Mengirim…"
+                : acceptingOrders
+                  ? "Pesan Sekarang"
+                  : "Pesanan Ditutup"}
             </button>
           </div>
         )}

@@ -116,6 +116,11 @@ export interface MenuPromoPayload {
   } | null;
 }
 
+/** `menu:ordering` → menu room */
+export interface MenuOrderingPayload {
+  acceptingOrders: boolean;
+}
+
 // ── Payment & session (§3.3) ──────────────────────────────────────────────────
 
 /** `payment:confirmed` → session:{id}, cashier */
@@ -161,6 +166,7 @@ export interface ServerToClientEvents {
   "order:cancelled": (payload: OrderCancelledPayload) => void;
   "menu:availability": (payload: MenuAvailabilityPayload) => void;
   "menu:promo": (payload: MenuPromoPayload) => void;
+  "menu:ordering": (payload: MenuOrderingPayload) => void;
   "payment:confirmed": (payload: PaymentConfirmedPayload) => void;
   "payment:failed": (payload: PaymentFailedPayload) => void;
   "session:closed": (payload: SessionClosedPayload) => void;

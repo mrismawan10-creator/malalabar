@@ -19,19 +19,21 @@ import {
 let app: FastifyInstance;
 let tables: ReturnType<typeof createFakeTableRepository>;
 let sessions: ReturnType<typeof createFakeSessionRepository>;
+let settings: ReturnType<typeof createFakeSettingsRepository>;
 
 const TABLES = "/api/v1/admin/tables";
 const SESSIONS = "/api/v1/sessions";
 
 async function boot(
-  settings: ReturnType<typeof createFakeSettingsRepository> = createFakeSettingsRepository(),
+  settingsRepo: ReturnType<typeof createFakeSettingsRepository> = createFakeSettingsRepository(),
 ): Promise<FastifyInstance> {
   tables = createFakeTableRepository();
   sessions = createFakeSessionRepository();
+  settings = settingsRepo;
   const instance = await buildApp({
     tableRepository: tables,
     sessionRepository: sessions,
-    settingsRepository: settings,
+    settingsRepository: settingsRepo,
     // Per-request guard check; always clean in these tests.
     staffStatusChecker: async () => ({ isSuspended: false, mustReset: false }),
   });
@@ -160,6 +162,32 @@ describe("POST /sessions — one OPEN session per table", () => {
 
     expect(sa.session.id).not.toBe(sb.session.id);
     expect(sessions.all()).toHaveLength(2);
+  });
+
+  it("does not create a new empty session while ordering is paused", async () => {
+    await app.close();
+    app = await boot(createFakeSettingsRepository({ acceptingOrders: false }));
+    const table = await seedTable();
+
+    const res = await scan(table.qrToken);
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json<{ error: { code: string } }>().error.code).toBe(
+      "ORDERING_PAUSED",
+    );
+    expect(sessions.all()).toHaveLength(0);
+  });
+
+  it("allows an existing open session to resume while ordering is paused", async () => {
+    const table = await seedTable();
+    const first = (await scan(table.qrToken)).json<CreateSessionResponse>();
+    await settings.update({ acceptingOrders: false });
+
+    const res = await scan(table.qrToken);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json<CreateSessionResponse>().session.id).toBe(first.session.id);
+    expect(sessions.all()).toHaveLength(1);
   });
 });
 

@@ -165,6 +165,22 @@ export function createOrderService(deps: {
 
   return {
     async submit(sessionId, items) {
+      const settings = await deps.settings.get();
+      if (!settings) {
+        throw new AppError(
+          "SETTINGS_MISSING",
+          "Restoran belum dikonfigurasi",
+          503,
+        );
+      }
+      if (!settings.acceptingOrders) {
+        throw new AppError(
+          "ORDERING_PAUSED",
+          "Pemesanan sedang ditutup sementara. Silakan coba kembali nanti.",
+          409,
+        );
+      }
+
       const stage = await repo.findActiveStageBySemantic(
         "AWAITING_CONFIRMATION",
       );

@@ -15,6 +15,7 @@ let app: FastifyInstance;
 let sessions: ReturnType<typeof createFakeSessionRepository>;
 let orders: ReturnType<typeof createFakeOrderRepository>;
 let tables: ReturnType<typeof createFakeTableRepository>;
+let settings: ReturnType<typeof createFakeSettingsRepository>;
 let sessionId: string;
 let token: string;
 
@@ -24,10 +25,11 @@ async function boot(
   sessions = createFakeSessionRepository();
   orders = orderRepo;
   tables = createFakeTableRepository();
+  settings = createFakeSettingsRepository();
   app = await buildApp({
     tableRepository: tables,
     sessionRepository: sessions,
-    settingsRepository: createFakeSettingsRepository(),
+    settingsRepository: settings,
     menuRepository: createFakeMenuRepository(),
     orderRepository: orders,
   });
@@ -197,6 +199,18 @@ describe("POST /sessions/:id/orders — pricing is the server's job", () => {
 });
 
 describe("POST /sessions/:id/orders — validation", () => {
+  it("rejects new orders while the restaurant has paused ordering", async () => {
+    await settings.update({ acceptingOrders: false });
+
+    const res = await submit({ items: [NASGOR] });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json<{ error: { code: string } }>().error.code).toBe(
+      "ORDERING_PAUSED",
+    );
+    expect(orders.saved()).toHaveLength(0);
+  });
+
   it("rejects a sold-out item with 422 (failure path)", async () => {
     const res = await submit({
       items: [{ menuItemId: "item-sate", quantity: 1, selectedOptionIds: [] }],

@@ -55,6 +55,8 @@ export interface MenuItemSummary {
 }
 
 export interface MenuResponse {
+  /** Whether new orders can currently be submitted. */
+  acceptingOrders: boolean;
   promos: MenuPromoCard[];
   categories: MenuCategory[];
   items: MenuItemSummary[];

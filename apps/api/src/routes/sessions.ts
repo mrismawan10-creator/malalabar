@@ -26,16 +26,23 @@ export const sessionRoutes: FastifyPluginAsync<Options> = async (
 ) => {
   // 200, not 201: this is find-or-create. A second phone scanning the same
   // table joins the existing session rather than creating one (SDD_Core §5.1).
-  app.post("/sessions", async (request) => {
-    const { tableToken } = createBodySchema.parse(request.body);
-    return sessionService.bootstrap(tableToken);
-  });
+  app.post(
+    "/sessions",
+    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    async (request) => {
+      const { tableToken } = createBodySchema.parse(request.body);
+      return sessionService.bootstrap(tableToken);
+    },
+  );
 
   // Payment initiation (T4.1 — Bill freeze)
   const guard = requireCustomerSession(sessions);
   app.post(
     "/sessions/:sessionId/payment",
-    { preHandler: guard },
+    {
+      preHandler: guard,
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    },
     async (request) => {
       const { sessionId } = z
         .object({ sessionId: z.string().min(1) })
@@ -53,7 +60,10 @@ export const sessionRoutes: FastifyPluginAsync<Options> = async (
   // webhook's realtime event is missed (Midtrans_Integration_Spec §3).
   app.get(
     "/sessions/:sessionId/payment-status",
-    { preHandler: guard },
+    {
+      preHandler: guard,
+      config: { rateLimit: { max: 60, timeWindow: "1 minute" } },
+    },
     async (request) => {
       const { sessionId } = z
         .object({ sessionId: z.string().min(1) })

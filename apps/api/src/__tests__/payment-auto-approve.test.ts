@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
 import { createCashierService } from "../services/cashier.service.js";
 import type { PrismaClient } from "@malalabar/db";
 import type { RealtimeGateway } from "../realtime/gateway.js";
@@ -18,7 +18,11 @@ const ACCEPTED: StageRow = {
  */
 describe("CashierService - confirmPayment approves awaiting batches", () => {
   let prisma: {
-    payment: { findUnique: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
+    $transaction: Mock<[(tx: any) => unknown], Promise<unknown>>;
+    payment: {
+      findUnique: ReturnType<typeof vi.fn>;
+      updateMany: ReturnType<typeof vi.fn>;
+    };
     tableSession: { update: ReturnType<typeof vi.fn> };
     order: { findMany: ReturnType<typeof vi.fn>; findUnique: ReturnType<typeof vi.fn> };
     auditLog: { create: ReturnType<typeof vi.fn> };
@@ -33,6 +37,7 @@ describe("CashierService - confirmPayment approves awaiting batches", () => {
 
   beforeEach(() => {
     prisma = {
+      $transaction: vi.fn(async (fn: (tx: any) => unknown) => fn(prisma)),
       payment: {
         findUnique: vi.fn().mockResolvedValue({
           id: "pay-1",
@@ -42,13 +47,7 @@ describe("CashierService - confirmPayment approves awaiting batches", () => {
           sessionId: "session-1",
           session: { status: "OPEN", table: { number: "03" } },
         }),
-        update: vi.fn().mockResolvedValue({
-          id: "pay-1",
-          method: "CASH",
-          status: "PAID",
-          totalAmount: 50000,
-          paidAt: new Date(),
-        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       tableSession: { update: vi.fn().mockResolvedValue({}) },
       order: {

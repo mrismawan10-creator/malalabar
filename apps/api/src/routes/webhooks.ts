@@ -34,22 +34,26 @@ export const webhookRoutes: FastifyPluginAsync<Options> = async (
    * Public — no auth required (Midtrans signature verification instead).
    * POST /api/v1/webhooks/midtrans
    */
-  app.post("/webhooks/midtrans", async (request, reply) => {
-    // Validate and parse payload — the signature travels in the body.
-    const { signature_key: signature, ...notification } =
-      midtransWebhookSchema.parse(request.body);
+  app.post(
+    "/webhooks/midtrans",
+    { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      // Validate and parse payload — the signature travels in the body.
+      const { signature_key: signature, ...notification } =
+        midtransWebhookSchema.parse(request.body);
 
-    // Handle webhook
-    const result = await midtransWebhook.handlePaymentNotification(
-      notification,
-      signature,
-      config.MIDTRANS_SERVER_KEY,
-    );
+      // Handle webhook
+      const result = await midtransWebhook.handlePaymentNotification(
+        notification,
+        signature,
+        config.MIDTRANS_SERVER_KEY,
+      );
 
-    // Return 200 OK to acknowledge receipt
-    return reply.status(200).send({
-      status: "ok",
-      transaction_status: result.status,
-    });
-  });
+      // Return 200 OK to acknowledge receipt
+      return reply.status(200).send({
+        status: "ok",
+        transaction_status: result.status,
+      });
+    },
+  );
 };

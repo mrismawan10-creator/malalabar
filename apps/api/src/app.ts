@@ -5,7 +5,8 @@ import type { ApiError } from "@malalabar/types";
 import { config } from "./config.js";
 import { AppError } from "./lib/errors.js";
 import { disconnectPrisma, getPrisma } from "./lib/prisma.js";
-import { disconnectRedis } from "./lib/redis.js";
+import { disconnectRedis, getRedis } from "./lib/redis.js";
+import { registerRateLimit } from "./lib/rate-limit.js";
 import type { SocketTokenVerifier } from "./realtime/index.js";
 import { realtimePlugin } from "./realtime/index.js";
 import type {
@@ -86,12 +87,20 @@ export interface BuildAppOptions {
 export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
     logger: config.NODE_ENV !== "test",
+    // The API always runs behind a proxy (Railway edge / Vercel rewrites), so
+    // request.ip is only meaningful with X-Forwarded-For trusted.
+    trustProxy: true,
   });
 
   await app.register(cors, {
     origin: config.CORS_ORIGINS.split(",").map((o) => o.trim()),
     // Lets the admin app read the QR download filename cross-origin.
     exposedHeaders: ["Content-Disposition"],
+  });
+
+  await registerRateLimit(app, {
+    enabled: config.NODE_ENV !== "test",
+    redis: config.NODE_ENV !== "test" ? getRedis() : null,
   });
 
   app.setNotFoundHandler((_req, reply) => {

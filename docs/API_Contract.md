@@ -42,7 +42,10 @@ The server derives role/scope from the verified token. **Never** from the body. 
 | 404 | Resource not found |
 | 409 | State conflict (e.g. session already paid, double-approve) |
 | 422 | Business rule violation (e.g. required customization missing) |
+| 429 | `RATE_LIMITED` — too many requests; retry after the window |
 | 500 | Unexpected — never leak internals |
+
+Rate limits run globally (300/min) and per sensitive route: staff/KDS login 5/min, change-password 10/min, `POST /sessions` 30/min, order submit 30/min, payment initiation 10/min, Midtrans webhook 60/min, payment-status poll 60/min. Buckets are keyed by bearer token when present (so customers behind one NAT do not share a bucket), otherwise by client IP, and are stored in Redis (`skipOnError` fails open if it is down). A 429 always uses the shape below with `code: "RATE_LIMITED"`.
 
 ### 1.3 Pagination (list endpoints)
 

@@ -23,6 +23,7 @@ export const staffAuthRoutes: FastifyPluginAsync<Options> = async (
 ) => {
   app.post<{ Body: unknown }>(
     "/auth/staff/login",
+    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
     async (request, reply) => {
       const body = loginSchema.parse(request.body);
       const result = await staffAuth.login(body.email, body.password);
@@ -35,7 +36,10 @@ export const staffAuthRoutes: FastifyPluginAsync<Options> = async (
   // §2.1, API_Contract §2).
   app.post<{ Body: unknown }>(
     "/auth/staff/change-password",
-    { preHandler: requireStaffRole("ADMIN", "CASHIER") },
+    {
+      preHandler: requireStaffRole("ADMIN", "CASHIER"),
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    },
     async (request) => {
       const body = changePasswordSchema.parse(request.body);
       return staffAuth.changePassword(

@@ -301,21 +301,46 @@ export function createCashierService(deps: {
 
       const now = new Date();
 
-      // Update payment status to PAID
-      const updated = await deps.prisma.payment.update({
-        where: { id: paymentId },
-        data: {
-          status: "PAID",
-          paidAt: now,
-        },
-        select: {
-          id: true,
-          method: true,
-          status: true,
-          totalAmount: true,
-          paidAt: true,
-        },
+      // The payment transition, the session close and the audit row move
+      // together. The conditional update is the idempotency guard: a
+      // concurrent confirmation sees count 0 and aborts without side effects.
+      const applied = await deps.prisma.$transaction(async (tx) => {
+        const updated = await tx.payment.updateMany({
+          where: { id: paymentId, status: "PENDING" },
+          data: { status: "PAID", paidAt: now },
+        });
+
+        if (updated.count === 0) {
+          return false;
+        }
+
+        await tx.tableSession.update({
+          where: { id: payment.sessionId },
+          data: { status: "PAID", closedAt: now },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            actorType: "STAFF",
+            actorId: staffId,
+            action: "CONFIRM_PAYMENT",
+            entityType: "PAYMENT",
+            entityId: paymentId,
+            metadata: { method: payment.method, amount: payment.totalAmount },
+            ipAddress,
+          },
+        });
+
+        return true;
       });
+
+      if (!applied) {
+        throw new AppError(
+          "PAYMENT_NOT_PENDING",
+          "Pembayaran sudah diproses sebelumnya",
+          409,
+        );
+      }
 
       // Pay-first flow: settling the bill is the cashier's go-ahead for the
       // kitchen, so batches still awaiting approval are approved now by the
@@ -332,25 +357,6 @@ export function createCashierService(deps: {
         await service.approveOrder(o.id, staffId, ipAddress);
       }
 
-      // Close session
-      await deps.prisma.tableSession.update({
-        where: { id: payment.sessionId },
-        data: { status: "PAID", closedAt: now },
-      });
-
-      // Write audit log
-      await deps.prisma.auditLog.create({
-        data: {
-          actorType: "STAFF",
-          actorId: staffId,
-          action: "CONFIRM_PAYMENT",
-          entityType: "PAYMENT",
-          entityId: paymentId,
-          metadata: { method: payment.method, amount: payment.totalAmount },
-          ipAddress,
-        },
-      });
-
       // Emit realtime events
       const transactionId = `TXN-${paymentId.slice(0, 8)}-${Date.now()}`;
       deps.gateway.paymentConfirmed({
@@ -358,7 +364,7 @@ export function createCashierService(deps: {
         paymentId,
         method: payment.method,
         totalAmount: payment.totalAmount,
-        paidAt: updated.paidAt?.toISOString() ?? now.toISOString(),
+        paidAt: now.toISOString(),
         transactionId,
       });
 
@@ -370,11 +376,11 @@ export function createCashierService(deps: {
 
       return {
         payment: {
-          id: updated.id,
-          method: updated.method,
-          status: updated.status as any,
-          totalAmount: updated.totalAmount,
-          confirmedAt: updated.paidAt?.toISOString() ?? now.toISOString(),
+          id: payment.id,
+          method: payment.method,
+          status: "PAID",
+          totalAmount: payment.totalAmount,
+          confirmedAt: now.toISOString(),
         },
         sessionClosed: true,
       };

@@ -17,6 +17,7 @@ export const kitchenDeviceAuthRoutes: FastifyPluginAsync<Options> = async (
 ) => {
   app.post<{ Body: unknown }>(
     "/auth/kitchen/login",
+    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
     async (request, reply) => {
       const body = loginSchema.parse(request.body);
       const result = await kitchenDeviceAuth.login(body.deviceId, body.token);

@@ -183,14 +183,17 @@ function OrderScreen() {
       const theme = nextActive ?? nextTracked[0]!;
       applyAccent(theme.settings.primaryColor);
 
-      // Waiting for the cashier to confirm cash/card? Land back on that screen.
+      // Waiting for the cashier to confirm cash/card? A reload of this tab lands
+      // back on that screen. A fresh scan always starts at the menu: the session
+      // is shared per table, so the pending payment may be another guest's —
+      // the bill stays one tap away via "Lihat tagihan".
       let nextView: View = nextActive ? "menu" : "tracking";
       if (nextActive) {
         const bill = await api.getBill(nextActive.session.id, nextActive.sessionToken);
         setBillData(bill);
         if (bill.pendingPayment) {
           setPendingMethod(bill.pendingPayment.method);
-          nextView = "checkout";
+          if (!freshScan) nextView = "checkout";
         }
       }
 

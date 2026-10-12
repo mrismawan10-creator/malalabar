@@ -21,6 +21,7 @@ import { useStaffToken } from "@/lib/use-staff-token";
 import { AdminNav } from "./admin-nav";
 import { StaffLoginForm } from "./staff-login-form";
 import { OrderHistorySection } from "./analytics-order-history";
+import { AnalyticsInsight } from "./analytics-insight";
 
 /**
  * Analytics dashboard (PRD 4.6.1, T6.4). Metrics and charts follow the
@@ -268,6 +269,13 @@ export function AnalyticsDashboard() {
                 delta={summary.comparison.aovDelta}
               />
             </div>
+
+            <AnalyticsInsight
+              token={token}
+              request={period === "custom" ? { period, from, to } : { period }}
+              ready={period !== "custom" || (Boolean(from) && Boolean(to))}
+              onUnauthorized={logout}
+            />
 
             {/* Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

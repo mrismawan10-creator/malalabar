@@ -138,6 +138,19 @@ const envSchema = z.object({
   MIDTRANS_IS_PRODUCTION: envFlag,
   CLOUDINARY_URL: z.string().default(""),
 
+  // ── AI Insight (Anthropic Claude API) — server-only, never logged ─────────
+  /** Optional: unset/blank turns the AI Insight feature off. */
+  ANTHROPIC_API_KEY: z.preprocess(
+    (v) => (typeof v === "string" ? v.trim() || undefined : v),
+    z.string().optional(),
+  ),
+  /** Model ID from https://platform.claude.com/docs/en/about-claude/models/overview
+   *  — Claude Haiku 5.5: "for high-volume, latency-sensitive tasks". */
+  ANTHROPIC_MODEL: z.preprocess(
+    (v) => (typeof v === "string" ? v.trim() || undefined : v),
+    z.string().min(1).default("claude-haiku-5-5"),
+  ),
+
   // ── Demo Mode (docs/Demo_Mode.md) — all inert unless DEMO_MODE=true ───────
   DEMO_MODE: envFlag,
   /** Comma-separated shared demo accounts (<cashier>,<admin>) — lib/demo-policy. */

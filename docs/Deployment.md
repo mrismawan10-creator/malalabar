@@ -111,9 +111,10 @@ the root `Dockerfile` and build context, `plan: free`, health check
 | `KDS_APP_URL` | `https://malalabar-kds.vercel.app` — printed into KDS enrolment QRs |
 | `MIDTRANS_SERVER_KEY` / `MIDTRANS_CLIENT_KEY` | Midtrans **sandbox** keys, from the sandbox dashboard (Settings → Access Keys). Some accounts' sandbox keys start with `Mid-…` like production ones — check the server key with the probe below |
 | `CLOUDINARY_URL` | `cloudinary://key:secret@cloud` |
+| `ANTHROPIC_API_KEY` | optional — enables AI Insight in Laporan (Anthropic Console → API keys). Leave empty to keep the feature off |
 | `DEMO_STAFF_EMAILS` | `<cashier-email>,<admin-email>` — exactly two, in that order |
 
-Already fixed in `render.yaml`: `CLIENT_IP_HEADER=cf-connecting-ip`, `TRUST_PROXY_HOPS=1`, `DEMO_MODE=true`,
+Already fixed in `render.yaml`: `ANTHROPIC_MODEL=claude-haiku-5-5`, `CLIENT_IP_HEADER=cf-connecting-ip`, `TRUST_PROXY_HOPS=1`, `DEMO_MODE=true`,
 `DEMO_AI_DAILY_LIMIT=20`, `MIDTRANS_IS_PRODUCTION=false`. `PORT` is injected
 by Render (default `10000`, [docs](https://render.com/docs/web-services)) — do
 not set it. `NODE_ENV=production` comes from the Dockerfile.

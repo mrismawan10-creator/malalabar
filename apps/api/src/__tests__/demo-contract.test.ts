@@ -20,9 +20,8 @@ import {
  * proven without running a handler or touching a database. A route missing
  * from DEMO_ALLOWED_WRITES, guarded by the wrong role, or renamed fails here.
  *
- * TODO(AI Insight): when the feature ships, add
- *   { role: "ADMIN", method: "POST", pattern: "/admin/analytics/insight", url: "/admin/analytics/insight" }
- * (and the matching DEMO_ALLOWED_WRITES entry in lib/demo-policy.ts).
+ * A new feature reviewers should use goes here (with its role) and, if it
+ * writes, into DEMO_ALLOWED_WRITES in lib/demo-policy.ts.
  */
 interface ContractEntry {
   role: "CASHIER" | "ADMIN";
@@ -54,6 +53,9 @@ const DEMO_CONTRACT: ContractEntry[] = [
   { role: "ADMIN", method: "GET", pattern: "/admin/analytics/orders/:id", url: "/admin/analytics/orders/o1" },
   { role: "ADMIN", method: "GET", pattern: "/admin/reports/:type", url: "/admin/reports/sales" },
   { role: "ADMIN", method: "GET", pattern: "/admin/order-acceptance", url: "/admin/order-acceptance" },
+  // AI Insight — metered per demo account by DEMO_AI_DAILY_LIMIT.
+  { role: "ADMIN", method: "GET", pattern: "/admin/analytics/insight/status", url: "/admin/analytics/insight/status" },
+  { role: "ADMIN", method: "POST", pattern: "/admin/analytics/insight", url: "/admin/analytics/insight" },
 ];
 
 const REACHED = 209;

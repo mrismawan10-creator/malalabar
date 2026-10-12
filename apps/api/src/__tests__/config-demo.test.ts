@@ -35,6 +35,8 @@ describe("checkDemoMidtrans", () => {
       expect(errors).toEqual([]);
       expect(warnings).toHaveLength(1);
       expect(warnings[0]).toContain("SB-Mid-server-");
+      // Some sandbox accounts issue Mid-… keys: the warning must not call it production.
+      expect(warnings[0]).toContain("does not make it a production key");
     }
   });
 

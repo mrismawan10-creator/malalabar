@@ -109,7 +109,7 @@ the root `Dockerfile` and build context, `plan: free`, health check
 | `CORS_ORIGINS` | `https://malalabar-customer.vercel.app,https://malalabar-admin.vercel.app,https://malalabar-kds.vercel.app` (no spaces, no trailing slash) |
 | `CUSTOMER_APP_URL` | `https://malalabar-customer.vercel.app` — printed into every table QR |
 | `KDS_APP_URL` | `https://malalabar-kds.vercel.app` — printed into KDS enrolment QRs |
-| `MIDTRANS_SERVER_KEY` / `MIDTRANS_CLIENT_KEY` | Midtrans **sandbox** keys (`SB-Mid-server-…` / `SB-Mid-client-…`) |
+| `MIDTRANS_SERVER_KEY` / `MIDTRANS_CLIENT_KEY` | Midtrans **sandbox** keys, from the sandbox dashboard (Settings → Access Keys). Some accounts' sandbox keys start with `Mid-…` like production ones — check the server key with the probe below |
 | `CLOUDINARY_URL` | `cloudinary://key:secret@cloud` |
 | `DEMO_STAFF_EMAILS` | `<cashier-email>,<admin-email>` — exactly two, in that order |
 
@@ -123,6 +123,15 @@ not set it. `NODE_ENV=production` comes from the Dockerfile.
 5. **⚠️ VERIFIKASI:** if the deploy log says no open port was detected, the
    app's `listen("::")` is the suspect — Render documents binding `0.0.0.0`.
    (`::` is dual-stack on Linux and is expected to work.)
+
+**Check the server key belongs to the sandbox** — read-only, nothing is
+created. It answers `404` for a sandbox key and `401` for a key from the
+production dashboard (which would make every demo payment fail):
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -u "<server-key>:" \
+  https://api.sandbox.midtrans.com/v2/key-probe-1/status
+```
 
 The startup refuses — with a clear `[config]` message — if
 `TRUST_PROXY_HOPS` is missing, if Midtrans is not sandbox while
@@ -149,7 +158,7 @@ Supabase project.
    $env:CUSTOMER_APP_URL = "https://malalabar-customer.vercel.app"
    $env:KDS_APP_URL = "https://malalabar-kds.vercel.app"
    $env:MIDTRANS_IS_PRODUCTION = "false"
-   $env:MIDTRANS_SERVER_KEY = "SB-Mid-server-..."
+   $env:MIDTRANS_SERVER_KEY = "<sandbox server key>"
    $env:DEMO_MODE = "true"
    $env:DEMO_STAFF_EMAILS = "<cashier-email>,<admin-email>"
    $env:DEMO_STAFF_PASSWORD = "<12+ characters>"
@@ -208,7 +217,7 @@ time.
 | `NEXT_PUBLIC_API_BASE_URL` | `https://<api>.onrender.com/api/v1` | `https://<api>.onrender.com` | `https://<api>.onrender.com` |
 | `NEXT_PUBLIC_WS_URL` | `https://<api>.onrender.com` | `https://<api>.onrender.com` | `https://<api>.onrender.com` |
 | `NEXT_PUBLIC_DEMO_MODE` | `true` | `true` | `true` |
-| `NEXT_PUBLIC_MIDTRANS_CLIENT_KEY` | `SB-Mid-client-…` | — | — |
+| `NEXT_PUBLIC_MIDTRANS_CLIENT_KEY` | the sandbox client key | — | — |
 | `NEXT_PUBLIC_MIDTRANS_SNAP_URL` | `https://app.sandbox.midtrans.com/snap/snap.js` | — | — |
 
 Note the different `NEXT_PUBLIC_API_BASE_URL` shapes: the customer app expects

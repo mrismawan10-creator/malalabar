@@ -4,6 +4,7 @@ import type {
   OrderHistoryRow,
   OrderHistoryStatusFilter,
 } from "@malalabar/types";
+import { wibLocal } from "../lib/wib-sql.js";
 
 /**
  * Read-only aggregates behind GET /admin/analytics/* (API_Contract §7).
@@ -180,7 +181,7 @@ export function createPrismaAnalyticsRepository(
       const rows = await prisma.$queryRaw<
         Array<{ hour: number; revenue: bigint }>
       >`
-        SELECT EXTRACT(HOUR FROM (p."paidAt" AT TIME ZONE 'Asia/Jakarta'))::int AS hour,
+        SELECT EXTRACT(HOUR FROM ${wibLocal('p."paidAt"')})::int AS hour,
                SUM(p."totalAmount")::bigint AS revenue
         FROM payments p
         WHERE p.status = 'PAID'
@@ -198,7 +199,7 @@ export function createPrismaAnalyticsRepository(
       const rows = await prisma.$queryRaw<
         Array<{ date: string; count: number }>
       >`
-        SELECT to_char(o."createdAt" AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM-DD') AS date,
+        SELECT to_char(${wibLocal('o."createdAt"')}, 'YYYY-MM-DD') AS date,
                COUNT(*)::int AS count
         FROM orders o
         WHERE o.rejected = false

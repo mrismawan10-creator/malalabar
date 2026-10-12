@@ -62,7 +62,7 @@ Rate limits (`apps/api/src/lib/rate-limit.ts`):
 
 - **IP only:** routes reachable without a token ignore the `Authorization` header, so a made-up token can never buy a fresh quota.
 - **Verified identity:** the bearer token's signature is checked (no database read) and the bucket is `staff:<id>`, `kds:<id>` or `session:<id>`; a token that does not verify counts against the client IP. Customers at one table share their session's bucket.
-- **Client IP** is resolved with `TRUST_PROXY_HOPS` (Env_Reference): only that many proxies' `X-Forwarded-For` entries are trusted, so a forged leftmost entry is ignored.
+- **Client IP** is `CF-Connecting-IP` when `CLIENT_IP_HEADER` is set and the header holds one valid IP (Cloudflare overwrites it on every request); otherwise it is resolved with `TRUST_PROXY_HOPS` — only that many proxies' `X-Forwarded-For` entries are trusted, so a forged leftmost entry is ignored. `True-Client-IP` and other headers are never used (Env_Reference).
 - **Store:** in memory, per API process — no Redis commands, nothing to fail open. Counters reset on restart; correct for a single instance only (Auth_RBAC_Spec §8.4).
 - Limits are counted on `onRequest`, before the body is parsed and before the guard runs, so refused requests count too.
 

@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { z } from "zod";
 import { isSandboxMidtransUrl, midtransBaseUrls } from "./lib/midtrans-urls.js";
+import { CLIENT_IP_HEADERS } from "./lib/client-ip.js";
 
 /** Only safe for local dev; production is forced to override it (see below). */
 const CUSTOMER_APP_URL_DEV_DEFAULT = "http://localhost:3000";
@@ -119,6 +120,13 @@ const envSchema = z.object({
    *  trusted (Fastify `trustProxy`). 0 = use the socket address, ignore the
    *  header. Must be set explicitly in production — see Deployment.md. */
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).optional(),
+  /** Header the edge proxy overwrites with the client IP (Render: Cloudflare's
+   *  cf-connecting-ip). Takes precedence over TRUST_PROXY_HOPS when present and
+   *  valid. Only headers listed in lib/client-ip.ts are accepted. */
+  CLIENT_IP_HEADER: z.preprocess(
+    (v) => (typeof v === "string" ? v.trim().toLowerCase() || undefined : v),
+    z.enum(CLIENT_IP_HEADERS).optional(),
+  ),
 
   // ── External services ──────────────────────────────────────────────────────
   MIDTRANS_SERVER_KEY: z.string().default(""),

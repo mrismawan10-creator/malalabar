@@ -22,10 +22,18 @@ services:
       # PORT is injected by Render (default 10000) — do not set it.
       # NODE_ENV=production is baked into the Dockerfile.
 
-      # Proxies whose X-Forwarded-For entries are trusted. Required: the API
-      # refuses to start in production without it. Render's docs do not state
-      # the hop count; 1 cannot be spoofed in either possible chain. MUST be
-      # verified after deploy — Deployment.md, "Client IP behind the proxy".
+      # Client IP (rate limits, audit log). Cloudflare, in front of every Render
+      # web service, overwrites CF-Connecting-IP with the real client address;
+      # X-Forwarded-For only reaches us extended by Render's internal 10.x
+      # proxies. Sources are Render articles, not /docs:
+      #   https://render.com/articles/host-pocketbase-on-render
+      #   https://render.com/articles/how-render-handles-ddos-attacks
+      # Measured on this service: with TRUST_PROXY_HOPS alone every request
+      # resolved to an internal 10.x proxy address.
+      - key: CLIENT_IP_HEADER
+        value: cf-connecting-ip
+      # Fallback when the header is missing or invalid, and still required:
+      # the API refuses to start in production without it. 1 cannot be spoofed.
       - key: TRUST_PROXY_HOPS
         value: "1"
 

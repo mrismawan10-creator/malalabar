@@ -113,7 +113,7 @@ the root `Dockerfile` and build context, `plan: free`, health check
 | `CLOUDINARY_URL` | `cloudinary://key:secret@cloud` |
 | `DEMO_STAFF_EMAILS` | `<cashier-email>,<admin-email>` — exactly two, in that order |
 
-Already fixed in `render.yaml`: `TRUST_PROXY_HOPS=1`, `DEMO_MODE=true`,
+Already fixed in `render.yaml`: `CLIENT_IP_HEADER=cf-connecting-ip`, `TRUST_PROXY_HOPS=1`, `DEMO_MODE=true`,
 `DEMO_AI_DAILY_LIMIT=20`, `MIDTRANS_IS_PRODUCTION=false`. `PORT` is injected
 by Render (default `10000`, [docs](https://render.com/docs/web-services)) — do
 not set it. `NODE_ENV=production` comes from the Dockerfile.
@@ -240,24 +240,38 @@ Run in order. Every item is required. (PowerShell: `curl.exe`, not `curl`.)
 - [ ] **Health:** `curl https://<api>.onrender.com/api/v1/health` →
   `{"status":"ok",…}`. The first call may take ~1 min (spin-up). This does
   not touch the database — the login below does.
-- [ ] **Client IP behind the proxy — REQUIRED.** Render's docs do not state
-  how many proxies sit in front of the app: traffic passes "Cloudflare and
-  Render's load balancers"
-  ([article](https://render.com/articles/how-render-handles-ddos-attacks)), and
-  Cloudflare *appends* to `X-Forwarded-For`, so its leftmost entry is
-  client-controlled ([article](https://render.com/articles/host-pocketbase-on-render)).
-  `TRUST_PROXY_HOPS=1` reads the rightmost entry, which a client cannot forge.
-  Measure what it resolves to:
-  1. `curl -H "X-Forwarded-For: 203.0.113.7" https://<api>.onrender.com/api/v1/health`
-  2. Render → service → **Logs**: find that request and read `remoteAddress`.
-     - **your own public IP** (check at e.g. https://ifconfig.me) → correct, done.
-     - **`203.0.113.7`** → the forged value won: too many hops trusted.
-       Lower `TRUST_PROXY_HOPS` (to `0` if needed) and investigate before going on.
-     - **an address that is not yours** (Cloudflare / Render) → too few: every
-       visitor would share one rate-limit bucket. Try `2` and repeat **step 1
-       with the forged header** — if `2` lets `203.0.113.7` through, go back
-       to `1` and treat reading Cloudflare's `CF-Connecting-IP` header as a
-       follow-up code change.
+- [ ] **Client IP behind the proxy — REQUIRED.** Rate limits and audit IPs
+  need the real client address. On Render the API reads it from
+  `CF-Connecting-IP` (`CLIENT_IP_HEADER=cf-connecting-ip` in `render.yaml`),
+  which Cloudflare overwrites on every request; a missing or invalid header
+  falls back to `TRUST_PROXY_HOPS`. Sources: Render articles, not `/docs`: [How Render handles DDoS attacks](https://render.com/articles/how-render-handles-ddos-attacks) (traffic passes "Cloudflare and Render's load balancers") and [Host PocketBase on Render](https://render.com/articles/host-pocketbase-on-render) ("Cloudflare writes that header on every request that reaches a Render web service, and it overwrites whatever the caller sent"; it appends to `X-Forwarded-For`).
+
+  Why not `TRUST_PROXY_HOPS` alone: measured on this service (2026-10-12),
+  every request resolved to an internal Render address (`10.31.197.151`,
+  `10.27.198.133`, `10.26.87.133`), so all visitors shared a handful of
+  rate-limit buckets. `X-Forwarded-For` and `True-Client-IP` are never trusted
+  for the client IP.
+
+  Verify after every deploy that touches this:
+  1. Note your public IP (e.g. https://ifconfig.me — mobile carriers change
+     it often, so check right before).
+  2. Send 6 failed logins with a forged `X-Forwarded-For`, a different value
+     each time (bash):
+     ```bash
+     for i in 1 2 3 4 5 6; do
+       curl -s -o /dev/null -w "%{http_code}\n" -X POST https://<api>.onrender.com/api/v1/auth/staff/login \
+         -H "Content-Type: application/json" -H "X-Forwarded-For: 198.51.100.$i" \
+         -d "{\"email\":\"probe-$i@example.invalid\",\"password\":\"x\"}"
+     done
+     ```
+     Expected: `401` five times, then **`429` on exactly the 6th**.
+  3. Render → **Logs**: those requests show `remoteAddress` = **your public
+     IP**. The log serializer reports the same address the rate limit uses.
+     - `198.51.100.x` → a forged value was trusted: stop and investigate.
+     - `10.x.x.x` → the header is not arriving (or `CLIENT_IP_HEADER` is
+       unset): every visitor shares a bucket.
+     - the 429 comes later than the 6th → requests landed in different
+       buckets; check the logs as above.
 - [ ] **Supabase is not paused**, and a database-backed call works (the
   logins below).
 - [ ] **Demo cashier login** on the admin app → *Kasir* loads; the connection

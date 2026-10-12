@@ -14,6 +14,7 @@ import type { KdsService } from "../services/kds.service.js";
 import type { PaymentService } from "../services/payment.service.js";
 import type { MidtransWebhookService } from "../services/midtrans-webhook.service.js";
 import type { AnalyticsService } from "../services/analytics.service.js";
+import type { AnalyticsInsightService } from "../services/analytics-insight.service.js";
 import type { ReportService } from "../services/report.service.js";
 import type { StaffAdminService } from "../services/staff-admin.service.js";
 import type { SuperadminSettingsService } from "../services/superadmin-settings.service.js";
@@ -61,6 +62,7 @@ export interface RouteOptions {
   menuAdminService: MenuAdminService;
   uploadService: UploadService;
   analyticsService: AnalyticsService;
+  insightService: AnalyticsInsightService;
   reportService: ReportService;
   staffAdminService: StaffAdminService;
   superadminSettingsService: SuperadminSettingsService;
@@ -113,6 +115,7 @@ export const registerRoutes: FastifyPluginAsync<RouteOptions> = async (
   await app.register(adminAnalyticsRoutes, {
     prefix: "/admin",
     analyticsService: opts.analyticsService,
+    insightService: opts.insightService,
   });
   await app.register(adminReportRoutes, {
     prefix: "/admin",

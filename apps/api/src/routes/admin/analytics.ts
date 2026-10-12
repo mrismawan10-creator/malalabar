@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { requireStaffRole } from "../../lib/guards.js";
 import type { AnalyticsService } from "../../services/analytics.service.js";
+import type { AnalyticsInsightService } from "../../services/analytics-insight.service.js";
 
 /** Routes stay thin: guard → validate → delegate (SDD_Core §2.3). */
 
@@ -47,11 +48,12 @@ const orderIdParamsSchema = z.object({ id: z.string().min(1) });
 
 interface Options {
   analyticsService: AnalyticsService;
+  insightService: AnalyticsInsightService;
 }
 
 export const adminAnalyticsRoutes: FastifyPluginAsync<Options> = async (
   app,
-  { analyticsService },
+  { analyticsService, insightService },
 ) => {
   // ADMIN + SUPERADMIN (API_Contract §7). SUPERADMIN passes via hierarchy,
   // so it is not listed here — see requireStaffRole.
@@ -65,6 +67,32 @@ export const adminAnalyticsRoutes: FastifyPluginAsync<Options> = async (
       to: query.to,
     });
   });
+
+  // AI Insight (API_Contract §7): same guard and period input as /summary,
+  // sent as a JSON body. Each call can cost money, so it has its own limit
+  // per staff identity on top of the global one.
+  app.post(
+    "/analytics/insight",
+    {
+      preHandler: guard,
+      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    },
+    async (request) => {
+      const body = summaryQuerySchema.parse(request.body ?? {});
+      return insightService.generate(
+        { period: body.period, from: body.from, to: body.to },
+        {
+          staffId: (request as any).staffId,
+          isDemoAccount: (request as any).isDemoAccount === true,
+          ipAddress: request.ip,
+        },
+      );
+    },
+  );
+
+  app.get("/analytics/insight/status", { preHandler: guard }, async () => ({
+    configured: insightService.isConfigured(),
+  }));
 
   app.get("/analytics/orders", { preHandler: guard }, async (request) => {
     const query = ordersQuerySchema.parse(request.query);

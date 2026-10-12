@@ -122,13 +122,14 @@ follow the usual inactivity timeout (`SystemSettings.sessionTimeoutMins`,
 swept every minute by the API).
 
 ### AI Insight quota
-AI Insight does not exist yet. The daily cap is ready in
-`apps/api/src/lib/daily-quota.ts` (`consumeDailyQuota`, Redis, resets at
-Jakarta midnight, fails closed, friendly `DEMO_AI_LIMIT_MESSAGE`). When AI
-Insight ships: check its cache first; only on a miss, for a demo account
-(`isDemoAccount`), call `consumeDailyQuota(getRedis(), "ai-insight:<staffId>",
-config.DEMO_AI_DAILY_LIMIT)`. Add the route to `DEMO_ALLOWED_WRITES` and
-`DEMO_CONTRACT` (both carry a TODO for it).
+The demo admin can use **AI Insight** in Laporan (`POST /admin/analytics/insight`
+is in `DEMO_ALLOWED_WRITES` and `DEMO_CONTRACT`). Each demo account gets
+`DEMO_AI_DAILY_LIMIT` model calls per Jakarta day (default 20) through
+`lib/daily-quota.ts` (Redis, resets at Jakarta midnight, fails closed). The
+1-hour result cache is checked first, so a repeated period costs no quota;
+once the limit is reached the API answers 429 `AI_QUOTA_EXCEEDED` with the
+friendly `DEMO_AI_LIMIT_MESSAGE`. Without `ANTHROPIC_API_KEY` on the API the
+card shows "Fitur AI belum dikonfigurasi."
 
 ---
 

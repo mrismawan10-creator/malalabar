@@ -27,6 +27,8 @@ Every environment variable the system needs, grouped by service. Rules: secrets 
 | `MIDTRANS_CLIENT_KEY` | `Mid-client-…` | Passed to client for Snap |
 | `MIDTRANS_IS_PRODUCTION` | `false` | `true` for live; sandbox first. Strict flag: `true`/`1` or `false`/`0`/empty (case-insensitive); anything else fails startup |
 | `CLOUDINARY_URL` | `cloudinary://key:secret@cloud` | Signed uploads + CDN |
+| `ANTHROPIC_API_KEY` | `sk-ant-…` | Optional; enables AI Insight (Laporan). Unset/blank → the feature reports "belum dikonfigurasi" and the button is disabled. Server-only, trimmed, never logged |
+| `ANTHROPIC_MODEL` | `claude-haiku-5-5` | Model for AI Insight (default). ID from the official [Models overview](https://platform.claude.com/docs/en/about-claude/models/overview): Claude Haiku 5.5, "for high-volume, latency-sensitive tasks". Change without code changes (e.g. `claude-sonnet-5-5`) |
 | `CORS_ORIGINS` | `https://order.x,https://admin.x,https://kds.x` | Comma-separated allowed origins; no wildcard in prod |
 | `CUSTOMER_APP_URL` | `https://order.x` | Public origin of the customer app. QR codes encode `<this>/order?t=<token>` (PRD 4.1.2). Defaults to `http://localhost:3000` in dev; **startup fails in production if left at the default** — a wrong value ships as unscannable printed cards |
 | `KDS_APP_URL` | `https://kds.x` | Public origin of the kitchen display app. Enrolment QRs encode `<this>/?d=<deviceId>&t=<token>` (Auth_RBAC_Spec §4). Defaults to `http://localhost:3002` in dev; **startup fails in production if left at the default** — a wrong value makes every enrolment QR dead |
@@ -37,7 +39,7 @@ Every environment variable the system needs, grouped by service. Rules: secrets 
 | `DEMO_MODE` | `false` | Public demo switch (docs/Demo_Mode.md). When `true`, startup **fails** if `MIDTRANS_IS_PRODUCTION` is true or the Midtrans base URLs are not sandbox hosts; a server key without the `SB-Mid-server-` prefix only logs a warning — some sandbox accounts issue keys without it; the sandbox API (401 vs 404) is the real check |
 | `DEMO_STAFF_EMAILS` | `kasir.demo@x,admin.demo@x` | Exactly two emails, in order `<cashier>,<admin>` (`demo:seed` creates them). Limited to the demo write allowlist while `DEMO_MODE=true`; **locked out** (no login, tokens and sockets rejected) while it is not. Empty = inert |
 | `DEMO_STAFF_PASSWORD` | `<12+ chars>` | Read only by `demo:seed` / `demo:reset` to set the demo account's password. Not needed on the API service |
-| `DEMO_AI_DAILY_LIMIT` | `20` | AI Insight calls per demo account per Jakarta day (wired when AI Insight ships) |
+| `DEMO_AI_DAILY_LIMIT` | `20` | AI Insight model calls per demo account per Jakarta day (cache hits are free); fails closed if Redis is down |
 
 The customer/KDS session token TTLs are derived from session timeout settings, not separate vars, except the KDS device long-life value above.
 

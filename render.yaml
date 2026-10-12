@@ -45,6 +45,9 @@ services:
         value: "20"
       - key: MIDTRANS_IS_PRODUCTION
         value: "false"
+      # Claude Haiku 5.5 — https://platform.claude.com/docs/en/about-claude/models/overview
+      - key: ANTHROPIC_MODEL
+        value: claude-haiku-5-5
 
       # ── Values you provide (never committed) ─────────────────────────────
       # Supabase SESSION pooler, port 5432, with ?connection_limit=5.
@@ -73,6 +76,9 @@ services:
       - key: MIDTRANS_CLIENT_KEY
         sync: false
       - key: CLOUDINARY_URL
+        sync: false
+      # AI Insight (Laporan). Optional: empty keeps the feature off.
+      - key: ANTHROPIC_API_KEY
         sync: false
       # <cashier-email>,<admin-email> — the two shared demo accounts.
       - key: DEMO_STAFF_EMAILS

@@ -141,6 +141,11 @@ export function requireStaffRole(
 
     (request as any).staffId = claims.sub;
     (request as any).staffRole = claims.role;
+    // Lets routes apply demo-only limits (e.g. the AI Insight daily quota).
+    (request as any).isDemoAccount = isDemoAccount(
+      request.server.demoPolicy,
+      status.email,
+    );
   };
 }
 

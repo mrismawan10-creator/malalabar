@@ -31,16 +31,15 @@ const API_PREFIX = "/api/v1";
  *
  * Each entry must also appear in DEMO_CONTRACT in
  * `__tests__/demo-contract.test.ts`, which proves it is reachable.
- *
- * TODO(AI Insight): when the feature ships, add
- *   "POST /admin/analytics/insight"
- * here and to DEMO_CONTRACT, and meter it with lib/daily-quota.ts.
  */
 export const DEMO_ALLOWED_WRITES: ReadonlySet<string> = new Set([
   "POST /cashier/orders/:orderId/approve",
   "POST /cashier/orders/:orderId/reject",
   "POST /cashier/orders/:orderId/serve",
   "POST /cashier/payments/:paymentId/confirm",
+  // AI Insight: writes nothing but an audit row; metered per demo account by
+  // DEMO_AI_DAILY_LIMIT (lib/daily-quota.ts, services/analytics-insight).
+  "POST /admin/analytics/insight",
 ]);
 
 /** Reads that expose staff identities, visitor IPs or device data. */

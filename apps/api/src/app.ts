@@ -6,7 +6,7 @@ import type { ApiError } from "@malalabar/types";
 import { config, parseDemoStaffEmails } from "./config.js";
 import { AppError } from "./lib/errors.js";
 import { disconnectPrisma, getPrisma } from "./lib/prisma.js";
-import { disconnectRedis } from "./lib/redis.js";
+import { disconnectRedis, getRedis } from "./lib/redis.js";
 import { registerRateLimit } from "./lib/rate-limit.js";
 import type { ClientIpHeader } from "./lib/client-ip.js";
 import { registerClientIp, reqLogSerializer } from "./lib/client-ip.js";
@@ -68,6 +68,10 @@ import { createKitchenDeviceStatusChecker } from "./lib/kitchen-device-status.js
 import { createKitchenDeviceAdminService } from "./services/kitchen-device-admin.service.js";
 import { createOrderAcceptanceService } from "./services/order-acceptance.service.js";
 import { registerRoutes } from "./routes/index.js";
+import Anthropic from "@anthropic-ai/sdk";
+import type { QuotaStore } from "./lib/daily-quota.js";
+import type { InsightCache, InsightModelClient } from "./services/analytics-insight.service.js";
+import { createAnalyticsInsightService } from "./services/analytics-insight.service.js";
 
 export interface BuildAppOptions {
   /** Override the socket handshake verifier (tests; real JWT verifier later). */
@@ -98,6 +102,15 @@ export interface BuildAppOptions {
   trustProxyHops?: number;
   /** Tests only: overrides CLIENT_IP_HEADER. */
   clientIpHeader?: ClientIpHeader;
+  /** AI Insight model client; null = not configured. Defaults to an Anthropic
+   *  client when ANTHROPIC_API_KEY is set. Tests pass a fake. */
+  insightClient?: InsightModelClient | null;
+  /** AI Insight result cache; defaults to Redis. */
+  insightCache?: InsightCache;
+  /** Daily-quota store for demo accounts; defaults to Redis. */
+  quotaStore?: QuotaStore;
+  /** Tests only: overrides DEMO_AI_DAILY_LIMIT. */
+  demoAiDailyLimit?: number;
   stageRepository?: StageRepository;
 }
 
@@ -240,6 +253,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   if (options.onRoute) app.addHook("onRoute", options.onRoute);
 
+  const analyticsService = createAnalyticsService({ repo: analyticsRepository });
+
   await app.register(registerRoutes, {
     prefix: "/api/v1",
     tableService: createTableService(tableRepository),
@@ -286,7 +301,32 @@ export async function buildApp(options: BuildAppOptions = {}) {
       validateImageUrl: (url) => uploadService.assertValidMenuImageUrl(url),
     }),
     uploadService,
-    analyticsService: createAnalyticsService({ repo: analyticsRepository }),
+    analyticsService,
+    insightService: createAnalyticsInsightService({
+      analytics: analyticsService,
+      client:
+        options.insightClient !== undefined
+          ? options.insightClient
+          : config.ANTHROPIC_API_KEY
+            ? new Anthropic({ apiKey: config.ANTHROPIC_API_KEY, timeout: 30_000, maxRetries: 1 })
+            : null,
+      model: config.ANTHROPIC_MODEL,
+      cache: options.insightCache ?? {
+        get: (key) => getRedis().get(key),
+        set: async (key, value, ttlSeconds) => {
+          await getRedis().set(key, value, "EX", ttlSeconds);
+        },
+      },
+      quota: {
+        store: options.quotaStore ?? {
+          incr: (key) => getRedis().incr(key),
+          expireat: (key, at) => getRedis().expireat(key, at),
+        },
+        demoDailyLimit: options.demoAiDailyLimit ?? config.DEMO_AI_DAILY_LIMIT,
+      },
+      writeAudit: (input) => staffRepository.writeAudit(input),
+      log: (message, err) => app.log.warn({ err }, message),
+    }),
     reportService: createReportService({
       analytics: analyticsRepository,
       reports: reportsRepository,

@@ -574,6 +574,42 @@ res: file stream (Content-Type per format)
 - **Payment Report** — per-method transaction count + total amount of PAID
   payments (`paidAt`), plus a TOTAL row.
 
+### AI Insight
+
+```
+POST /admin/analytics/insight
+req: { period: "today"|"7d"|"this_month"|"last_month"|"custom", from?, to? }   // same rules as ?period on /summary
+res: { headline, highlights: [string], concerns: [string], actions: [string],
+       generatedAt, cached, model, period: { from, to } }                      // period = WIB days, `to` inclusive
+
+GET /admin/analytics/insight/status
+res: { configured }                                                             // false when ANTHROPIC_API_KEY is unset
+```
+
+- Same guard as `/summary` (ADMIN, SUPERADMIN). Limited to 10/min per staff
+  identity on top of the global limit.
+- Numbers come only from `/summary`'s own computation, for the period and the
+  previous period of the same length. The server pre-computes every comparison
+  and share and sends the model a **whitelist of aggregates** (no IDs, names of
+  people, emails, tokens or payment references). Hours are labelled WIB.
+- Written by Claude (`ANTHROPIC_MODEL`, default `claude-haiku-5-5`) with
+  structured output, validated server-side. A period without sales returns a
+  fixed message without calling the model (`model: null`).
+- Cached in Redis for 1 hour per model + exact input (`cached: true` on a hit).
+  Every call writes an `AI_INSIGHT` audit row with period and cache
+  hit/miss/empty — never prompt text or keys.
+- Demo accounts (Demo Mode): `DEMO_AI_DAILY_LIMIT` model calls per Jakarta day;
+  cache hits are free.
+
+| Error code | HTTP | When |
+|---|---|---|
+| `AI_NOT_CONFIGURED` | 503 | No `ANTHROPIC_API_KEY` |
+| `AI_QUOTA_EXCEEDED` | 429 | Demo account over its daily AI limit |
+| `AI_TIMEOUT` | 504 | The model call timed out (30 s, one retry) |
+| `AI_UNAVAILABLE` | 503 | Anthropic rate limit, server or connection error, bad key/model |
+| `AI_INVALID_OUTPUT` | 502 | Output missing, malformed, cut off or failing validation |
+| `AI_DECLINED` | 422 | The model declined (`stop_reason: refusal`) |
+
 ---
 
 ## 8. Superadmin  (role: SUPERADMIN only)

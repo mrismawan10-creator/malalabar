@@ -417,17 +417,18 @@ function OrderScreen() {
     return (
       <>
         {rejectedBanner}
-        {!pendingMethod && (
-          <div className="mx-auto w-full max-w-md px-4 pt-4">
-            <button
-              type="button"
-              onClick={() => setView("menu")}
-              className="text-sm font-semibold text-ink underline"
-            >
-              ← Tambah pesanan lain
-            </button>
-          </div>
-        )}
+        {/* Always offer a way back: a shared table can land a fresh scan here
+            on someone else's pending cash/card payment, and the menu stays
+            usable meanwhile (ordering is not blocked by a pending payment). */}
+        <div className="mx-auto w-full max-w-md px-4 pt-4">
+          <button
+            type="button"
+            onClick={() => setView("menu")}
+            className="text-sm font-semibold text-ink underline"
+          >
+            {pendingMethod ? "← Kembali ke menu" : "← Tambah pesanan lain"}
+          </button>
+        </div>
         <BillCheckout
           sessionId={active.session.id}
           sessionToken={active.sessionToken}

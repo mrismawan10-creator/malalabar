@@ -17,7 +17,8 @@ export interface DemoSeedSummary {
   sessions: number;
   orders: number;
   paidRevenue: number;
-  staffEmail: string;
+  cashierEmail: string;
+  adminEmail: string;
 }
 
 const HISTORY_DAYS = 30;
@@ -37,8 +38,16 @@ export async function runDemoSeed(
 ): Promise<DemoSeedSummary> {
   assertDemoMode(cfg);
 
-  const staffEmail = parseDemoStaffEmails(cfg.DEMO_STAFF_EMAILS)[0];
-  if (!staffEmail) throw new Error("DEMO_STAFF_EMAILS must list the demo account's email");
+  // Two least-privilege accounts instead of one SUPERADMIN: the cashier screen
+  // needs CASHIER and the menu/tables/reports screens need ADMIN — no single
+  // non-superadmin role sees both (PRD §2.2, routes/cashier.ts).
+  const emails = parseDemoStaffEmails(cfg.DEMO_STAFF_EMAILS);
+  const [cashierEmail, adminEmail] = emails;
+  if (emails.length !== 2 || !cashierEmail || !adminEmail || cashierEmail === adminEmail) {
+    throw new Error(
+      "DEMO_STAFF_EMAILS must list exactly two different emails, in order: <cashier>,<admin>",
+    );
+  }
   if (cfg.DEMO_STAFF_PASSWORD.length < MIN_PASSWORD_LENGTH) {
     throw new Error(
       `DEMO_STAFF_PASSWORD must be set (at least ${MIN_PASSWORD_LENGTH} characters)`,
@@ -57,24 +66,17 @@ export async function runDemoSeed(
   await ensureDemoMenu(prisma);
   const table = await ensureDemoTable(prisma);
 
-  // The shared account: SUPERADMIN narrowed by lib/demo-policy at runtime.
-  const staff = await prisma.staffUser.upsert({
-    where: { email: staffEmail },
-    create: {
-      name: "Akun Demo",
-      email: staffEmail,
-      passwordHash: await hash(cfg.DEMO_STAFF_PASSWORD, 12),
-      role: "SUPERADMIN",
-      isSuspended: false,
-      mustReset: false,
-    },
-    update: {
-      passwordHash: await hash(cfg.DEMO_STAFF_PASSWORD, 12),
-      role: "SUPERADMIN",
-      isSuspended: false,
-      mustReset: false,
-    },
-  });
+  // The shared accounts, narrowed further by lib/demo-policy at runtime.
+  // Upsert also demotes an email that an earlier version seeded as SUPERADMIN.
+  const passwordHash = await hash(cfg.DEMO_STAFF_PASSWORD, 12);
+  const upsertDemoStaff = (email: string, name: string, role: "CASHIER" | "ADMIN") =>
+    prisma.staffUser.upsert({
+      where: { email },
+      create: { name, email, passwordHash, role, isSuspended: false, mustReset: false },
+      update: { passwordHash, role, isSuspended: false, mustReset: false },
+    });
+  const cashier = await upsertDemoStaff(cashierEmail, "Kasir Demo", "CASHIER");
+  await upsertDemoStaff(adminEmail, "Admin Demo", "ADMIN");
 
   const orderRepo = createPrismaOrderRepository(prisma);
   const menuIds = await prisma.menuItem.findMany({
@@ -94,7 +96,7 @@ export async function runDemoSeed(
     stages,
     settings,
     tableIds: tables.map((t) => t.id).filter((id) => id !== table.id).concat(table.id),
-    staffId: staff.id,
+    staffId: cashier.id, // approvals and cash/card confirmations are cashier actions
   });
 
   // Replace the previous seed wholesale so dates stay relative to today.
@@ -118,7 +120,8 @@ export async function runDemoSeed(
     sessions: history.sessions.length,
     orders: history.orders.length,
     paidRevenue: history.payments.reduce((sum, p) => sum + p.totalAmount, 0),
-    staffEmail,
+    cashierEmail,
+    adminEmail,
   };
 }
 

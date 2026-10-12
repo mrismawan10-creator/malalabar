@@ -4,6 +4,8 @@ import type { ChangePasswordResponse, StaffLoginResponse } from "@malalabar/type
 import { AppError } from "../lib/errors.js";
 import { config } from "../config.js";
 import type { StaffRepository } from "../repositories/staff.repository.js";
+import type { DemoPolicy } from "../lib/demo-policy.js";
+import { isLockedOutDemoAccount } from "../lib/demo-policy.js";
 
 export interface StaffAuthService {
   login(email: string, password: string): Promise<StaffLoginResponse>;
@@ -19,11 +21,15 @@ const PASSWORD_COST = 12;
 
 export function createStaffAuthService(deps: {
   staff: StaffRepository;
+  /** Locks out the shared demo accounts while DEMO_MODE is off. */
+  demoPolicy?: DemoPolicy;
 }): StaffAuthService {
   return {
     async login(email, password) {
       const user = await deps.staff.findByEmail(email);
-      if (!user) {
+      // A retired demo account answers exactly like an unknown email (same
+      // body, no bcrypt compare, same timing) — docs/Demo_Mode.md.
+      if (!user || isLockedOutDemoAccount(deps.demoPolicy, user.email)) {
         throw new AppError("INVALID_CREDENTIALS", "Email atau password salah", 401);
       }
 

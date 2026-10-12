@@ -1,12 +1,16 @@
 /**
  * Demo Mode staff restrictions (docs/Demo_Mode.md).
  *
- * The public demo account is a SUPERADMIN so one login can show the cashier,
- * menu, tables and reports screens (ADMIN cannot reach /cashier). Anything that
- * could lock other visitors out, leak data, or outlive a reset is denied here,
- * server-side, on top of the normal RBAC check (CLAUDE.md hard rule 1).
+ * The public demo uses two shared accounts — a CASHIER and an ADMIN — so no
+ * SUPERADMIN is ever handed out. Their normal RBAC still applies; this narrows
+ * them further, server-side (CLAUDE.md hard rule 1): anything that could lock
+ * other visitors out, leak data, rewrite the menu or outlive a reset is denied.
  *
- * Inert unless DEMO_MODE=true AND the caller's email is in DEMO_STAFF_EMAILS.
+ * Two independent rules, both keyed on DEMO_STAFF_EMAILS:
+ *   - DEMO_MODE=true  → listed accounts get the denylist below;
+ *   - DEMO_MODE off   → listed accounts cannot log in or use a token at all
+ *     (`isLockedOutDemoAccount`), so forgetting to retire them is safe.
+ * An empty DEMO_STAFF_EMAILS makes both inert.
  */
 
 export interface DemoPolicy {
@@ -28,6 +32,13 @@ const FORBIDDEN_SUPERADMIN_READS = [
 
 /** Writes outside /superadmin that would break the shared demo for everyone. */
 const FORBIDDEN_WRITES = [
+  // Menu is read-only in the demo: items (incl. availability, images and
+  // `menu/:id/customization-groups`), categories, customizations, promos.
+  "/admin/menu",
+  "/admin/categories",
+  "/admin/customization-groups",
+  "/admin/customization-options",
+  "/admin/promos",
   "/admin/tables", // incl. qr/regenerate — the public DEMO QR must stay valid
   "/admin/order-acceptance", // pausing orders stops every visitor
   "/admin/uploads", // no Cloudinary uploads from the public
@@ -72,6 +83,23 @@ export function isDemoAccount(
 ): boolean {
   return (
     policy?.enabled === true &&
+    email !== undefined &&
+    policy.staffEmails.has(email.toLowerCase())
+  );
+}
+
+/**
+ * A listed demo account while Demo Mode is OFF: login and every staff token
+ * are refused with the same generic errors a wrong password or a bad token
+ * gets, so the shared credentials stop working the moment the flag is off.
+ */
+export function isLockedOutDemoAccount(
+  policy: DemoPolicy | undefined,
+  email: string | undefined,
+): boolean {
+  return (
+    policy !== undefined &&
+    !policy.enabled &&
     email !== undefined &&
     policy.staffEmails.has(email.toLowerCase())
   );

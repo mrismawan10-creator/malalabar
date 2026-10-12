@@ -22,7 +22,7 @@ const untouchablePrisma = new Proxy({} as PrismaClient, {
 
 const demoOff = {
   DEMO_MODE: false,
-  DEMO_STAFF_EMAILS: "demo@malalabar.id",
+  DEMO_STAFF_EMAILS: "kasir@malalabar.id,admin@malalabar.id",
   DEMO_STAFF_PASSWORD: "a-very-long-demo-password",
 };
 
@@ -42,6 +42,14 @@ describe("demo scripts refuse to run without DEMO_MODE", () => {
     await expect(runDemoReset(untouchablePrisma, demoOff)).rejects.toBeInstanceOf(
       DemoModeRequiredError,
     );
+  });
+
+  it("demo:seed needs exactly two distinct demo emails (cashier, admin)", async () => {
+    for (const emails of ["one@malalabar.id", "a@x.id,b@x.id,c@x.id", "a@x.id,A@x.id", ""]) {
+      await expect(
+        runDemoSeed(untouchablePrisma, { ...demoOff, DEMO_MODE: true, DEMO_STAFF_EMAILS: emails }),
+      ).rejects.toThrow("exactly two different emails");
+    }
   });
 
   it("demo:seed refuses a missing or short demo password", async () => {

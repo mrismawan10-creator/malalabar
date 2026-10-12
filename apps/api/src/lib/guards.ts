@@ -10,6 +10,7 @@ import {
   DEMO_FORBIDDEN_MESSAGE,
   isDemoAccount,
   isDemoForbidden,
+  isLockedOutDemoAccount,
 } from "./demo-policy.js";
 
 declare module "fastify" {
@@ -117,8 +118,17 @@ export function requireStaffRole(
       return;
     }
 
-    // Demo Mode: the shared demo account is a SUPERADMIN, so the role check
-    // above lets it through; this narrows it (docs/Demo_Mode.md).
+    // Demo Mode off: a listed demo account is dead, including tokens issued
+    // while it was on. Same response as an invalid token — reveal nothing.
+    if (isLockedOutDemoAccount(request.server.demoPolicy, status.email)) {
+      void reply.status(401).send({
+        error: { code: "UNAUTHORIZED", message: "Invalid or expired token" },
+      });
+      return;
+    }
+
+    // Demo Mode on: the shared demo accounts pass their role check above;
+    // this narrows them further (docs/Demo_Mode.md).
     if (
       isDemoAccount(request.server.demoPolicy, status.email) &&
       isDemoForbidden(request.method, request.routeOptions.url ?? request.url)

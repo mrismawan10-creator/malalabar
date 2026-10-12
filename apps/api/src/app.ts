@@ -153,14 +153,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
     options.staffStatusChecker ?? createStaffStatusChecker(),
   );
 
-  // Demo Mode denylist, also read by requireStaffRole (docs/Demo_Mode.md).
-  app.decorate(
-    "demoPolicy",
-    options.demoPolicy ?? {
-      enabled: config.DEMO_MODE,
-      staffEmails: new Set(parseDemoStaffEmails(config.DEMO_STAFF_EMAILS)),
-    },
-  );
+  // Demo Mode policy, read by requireStaffRole and staff login
+  // (docs/Demo_Mode.md).
+  const demoPolicy: DemoPolicy = options.demoPolicy ?? {
+    enabled: config.DEMO_MODE,
+    staffEmails: new Set(parseDemoStaffEmails(config.DEMO_STAFF_EMAILS)),
+  };
+  app.decorate("demoPolicy", demoPolicy);
 
   // Same for kitchen devices — deactivate/rotate must bite on the next
   // request and the next handshake alike (hard rule 6).
@@ -228,7 +227,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
       orders: orderRepository,
       settings: settingsRepository,
     }),
-    staffAuthService: createStaffAuthService({ staff: staffRepository }),
+    staffAuthService: createStaffAuthService({
+      staff: staffRepository,
+      demoPolicy,
+    }),
     kitchenDeviceAuthService: createKitchenDeviceAuthService({
       kitchenDevice: kitchenDeviceRepository,
     }),

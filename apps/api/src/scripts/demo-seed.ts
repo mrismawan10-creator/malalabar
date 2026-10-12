@@ -1,6 +1,6 @@
 /**
- * Seeds the public demo: canonical menu, DEMO table, demo staff account and
- * ~30 days of order/payment history (docs/Demo_Mode.md).
+ * Seeds the public demo: canonical menu, DEMO table, the two demo staff
+ * accounts (CASHIER + ADMIN) and ~30 days of order/payment history (docs/Demo_Mode.md).
  *
  *   pnpm --filter api demo:seed
  *
@@ -15,7 +15,8 @@ async function main(): Promise<void> {
   console.log(
     `Demo seed complete: ${summary.sessions} sessions, ${summary.orders} orders, ` +
       `Rp ${summary.paidRevenue.toLocaleString("id-ID")} paid revenue.\n` +
-      `Demo staff login: ${summary.staffEmail} (password from DEMO_STAFF_PASSWORD).\n` +
+      `Demo logins (password from DEMO_STAFF_PASSWORD): cashier ${summary.cashierEmail}, ` +
+      `admin ${summary.adminEmail}.\n` +
       "Next: pnpm --filter api demo:qr",
   );
 }

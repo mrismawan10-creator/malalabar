@@ -1,0 +1,70 @@
+# Render Blueprint for the API (Fastify + Socket.io) — docs/Deployment.md.
+# Spec: https://render.com/docs/blueprint-spec
+#
+# Postgres is Supabase and Redis is Upstash (both external); the three Next.js
+# apps stay on Vercel. No secret values live in this file: every `sync: false`
+# variable is prompted for ONCE, when the Blueprint is first created. Render
+# ignores `sync: false` entries on later Blueprint syncs — change those values
+# in the service's Environment tab instead.
+services:
+  - type: web
+    name: malalabar-api
+    runtime: docker
+    plan: free
+    # Closest to Indonesia. ⚠️ Confirm the region is offered for free
+    # instances when creating the Blueprint (docs/Deployment.md).
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Fastify registers /health under the /api/v1 prefix.
+    healthCheckPath: /api/v1/health
+    envVars:
+      # PORT is injected by Render (default 10000) — do not set it.
+      # NODE_ENV=production is baked into the Dockerfile.
+
+      # Proxies whose X-Forwarded-For entries are trusted. Required: the API
+      # refuses to start in production without it. Render's docs do not state
+      # the hop count; 1 cannot be spoofed in either possible chain. MUST be
+      # verified after deploy — Deployment.md, "Client IP behind the proxy".
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+
+      # Public demo (docs/Demo_Mode.md). Startup refuses if Midtrans is not
+      # sandbox while DEMO_MODE is true.
+      - key: DEMO_MODE
+        value: "true"
+      - key: DEMO_AI_DAILY_LIMIT
+        value: "20"
+      - key: MIDTRANS_IS_PRODUCTION
+        value: "false"
+
+      # ── Values you provide (never committed) ─────────────────────────────
+      # Supabase SESSION pooler, port 5432, with ?connection_limit=5.
+      - key: DATABASE_URL
+        sync: false
+      # Upstash, rediss://default:<password>@<endpoint>:<port> (TLS required).
+      - key: REDIS_URL
+        sync: false
+      # openssl rand -hex 32 — keep a copy: the demo scripts need the same
+      # JWT_SECRET to sign table QR tokens.
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      # The three Vercel origins, comma-separated, no spaces, no trailing slash.
+      - key: CORS_ORIGINS
+        sync: false
+      - key: CUSTOMER_APP_URL
+        sync: false
+      - key: KDS_APP_URL
+        sync: false
+      # Midtrans SANDBOX keys (SB-Mid-server-… / SB-Mid-client-…).
+      - key: MIDTRANS_SERVER_KEY
+        sync: false
+      - key: MIDTRANS_CLIENT_KEY
+        sync: false
+      - key: CLOUDINARY_URL
+        sync: false
+      # <cashier-email>,<admin-email> — the two shared demo accounts.
+      - key: DEMO_STAFF_EMAILS
+        sync: false

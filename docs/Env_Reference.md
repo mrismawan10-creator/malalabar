@@ -4,9 +4,9 @@
 |---|---|
 | Version | 1.0 |
 | Companion to | CLAUDE.md, Auth_RBAC_Spec.md, Midtrans_Integration_Spec.md |
-| Deploy target | Railway (managed Postgres + Redis) |
+| Deploy target | Render (API) + Supabase (Postgres) + Upstash (Redis); Vercel (frontends) — Deployment.md |
 
-Every environment variable the system needs, grouped by service. Rules: secrets live in Railway variables (or `.env` locally, git-ignored), never in code or the repo. Each app reads env through one typed `config` module — no scattered `process.env` access (CLAUDE.md §6). Provide a committed `.env.example` per app with names and dummy values, never real secrets.
+Every environment variable the system needs, grouped by service. Rules: secrets live in the hosts' environment settings — Render, Vercel — (or `.env` locally, git-ignored), never in code or the repo. Each app reads env through one typed `config` module — no scattered `process.env` access (CLAUDE.md §6). Provide a committed `.env.example` per app with names and dummy values, never real secrets.
 
 ---
 
@@ -15,9 +15,9 @@ Every environment variable the system needs, grouped by service. Rules: secrets 
 | Variable | Example | Notes |
 |---|---|---|
 | `NODE_ENV` | `production` | `development` locally |
-| `PORT` | `4000` | Railway injects; default for local |
-| `DATABASE_URL` | `postgresql://…` | From Railway Postgres plugin |
-| `REDIS_URL` | `redis://…` | From Railway Redis plugin |
+| `PORT` | `4000` | Render injects it (default `10000`) — do not set there; `4000` locally |
+| `DATABASE_URL` | `postgresql://postgres.<ref>:<pw>@…pooler.supabase.com:5432/postgres?connection_limit=5` | Supabase **session pooler** (IPv4, works for the app and `prisma migrate deploy`); keep `connection_limit` under the dashboard Pool Size — Deployment.md §1 |
+| `REDIS_URL` | `rediss://default:<pw>@<endpoint>.upstash.io:6379` | Upstash; **`rediss://`** (TLS is mandatory there). Local Docker Redis uses `redis://localhost:6379` |
 | `JWT_SECRET` | `<random 32+ bytes>` | Signs staff + customer + KDS access tokens |
 | `JWT_REFRESH_SECRET` | `<random 32+ bytes>` | Separate key for refresh tokens |
 | `ACCESS_TOKEN_TTL` | `15m` | Staff access token lifetime |
@@ -49,7 +49,7 @@ Next.js exposes only `NEXT_PUBLIC_*` vars to the browser. Never expose server ke
 ### `apps/customer`
 | Variable | Notes |
 |---|---|
-| `NEXT_PUBLIC_API_BASE_URL` | e.g. `https://api.x/api/v1` |
+| `NEXT_PUBLIC_API_BASE_URL` | API origin **with** `/api/v1`, e.g. `https://<api>.onrender.com/api/v1` |
 | `NEXT_PUBLIC_WS_URL` | Socket.io URL |
 | `NEXT_PUBLIC_MIDTRANS_CLIENT_KEY` | Snap client key (public by design) |
 | `NEXT_PUBLIC_MIDTRANS_SNAP_URL` | `https://app.sandbox.midtrans.com/snap/snap.js` (sandbox) / prod URL |
@@ -58,15 +58,15 @@ Next.js exposes only `NEXT_PUBLIC_*` vars to the browser. Never expose server ke
 ### `apps/admin`
 | Variable | Notes |
 |---|---|
-| `NEXT_PUBLIC_API_BASE_URL` | |
-| `NEXT_PUBLIC_WS_URL` | |
+| `NEXT_PUBLIC_API_BASE_URL` | API origin **without** `/api/v1` (the app appends it; Socket.io uses this origin too), e.g. `https://<api>.onrender.com` |
+| `NEXT_PUBLIC_WS_URL` | API origin |
 | `NEXT_PUBLIC_DEMO_MODE` | `true` shows the Demo Mode banner |
 
 ### `apps/kds`
 | Variable | Notes |
 |---|---|
-| `NEXT_PUBLIC_API_BASE_URL` | |
-| `NEXT_PUBLIC_WS_URL` | |
+| `NEXT_PUBLIC_API_BASE_URL` | API origin **without** `/api/v1` (the app appends it; Socket.io uses this origin too), e.g. `https://<api>.onrender.com` |
+| `NEXT_PUBLIC_WS_URL` | API origin |
 | `NEXT_PUBLIC_DEMO_MODE` | `true` shows the Demo Mode badge |
 
 No secret keys in any frontend. Cloudinary uploads use a signature minted by the backend, so the frontend never holds the Cloudinary secret.
@@ -76,7 +76,7 @@ No secret keys in any frontend. Cloudinary uploads use a signature minted by the
 ## 2.5 Local development dependencies
 
 `docker-compose.yml` at the repo root runs Postgres and Redis for local work
-(production uses Railway's managed instances — SDD_Core §3):
+(production uses Supabase + Upstash — SDD_Core §3):
 
 ```bash
 docker compose up -d          # postgres + redis
@@ -107,19 +107,20 @@ tokens untouched, so it is safe to re-run.
 
 ---
 
-## 4. Railway setup notes
+## 4. Render / Supabase / Upstash setup notes
 
-- Add the **PostgreSQL** and **Redis** plugins; they inject `DATABASE_URL` and `REDIS_URL` into linked services.
-- Four services from the monorepo: `api`, `customer`, `admin`, `kds`. Set each service's root/start command to the right workspace (`pnpm --filter <app> start`).
-- Set the Midtrans dashboard webhook URL to the deployed `api` domain: `https://<api-domain>/api/v1/webhooks/midtrans`.
-- Run migrations on deploy: `pnpm db:migrate deploy` as a release/predeploy step for the `api` service. Do not auto-run `migrate dev` in production.
-- Maintenance/restart windows outside restaurant hours (PRD 6 availability).
+Full, ordered steps live in **Deployment.md**. In short:
+- **Render** builds the root `Dockerfile` from `render.yaml` (free web service, health check `/api/v1/health`). Secrets are `sync: false` and entered once, at Blueprint creation; later edits go in the service's Environment tab.
+- **Supabase**: use the session pooler URL (port 5432) — the direct host is IPv6-only — with `?connection_limit=5`.
+- **Upstash**: `rediss://` URL; TLS cannot be turned off.
+- Migrations run at container start (`prisma migrate deploy` in the Dockerfile `CMD`). Never run `migrate dev` against a hosted database.
+- Midtrans notification URL: `https://<api-domain>/api/v1/webhooks/midtrans`.
 
 ---
 
 ## 5. Local development
 
-- Copy each `.env.example` to `.env` and fill values. Local Postgres + Redis via Docker or Railway dev URLs.
+- Copy each `.env.example` to `.env` and fill values. Local Postgres + Redis via Docker (`docker-compose.yml`).
 - `pnpm install` → `pnpm db:migrate` → `pnpm db:seed` → `pnpm dev`.
 - Use Midtrans **sandbox** keys locally; expose the local webhook with a tunnel (e.g. ngrok) and point a sandbox webhook URL at it to test online payment end-to-end.
 

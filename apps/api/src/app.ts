@@ -55,6 +55,7 @@ import { createStageAdminService } from "./services/stage-admin.service.js";
 import { createSuperadminOverrideService } from "./services/superadmin-override.service.js";
 import { createSuperadminAuditService } from "./services/superadmin-audit.service.js";
 import { createSessionSweepService } from "./services/session-sweep.service.js";
+import { startScheduledJob } from "./lib/scheduled-job.js";
 import type { StageRepository } from "./repositories/stage.repository.js";
 import { createPrismaStageRepository } from "./repositories/stage.repository.js";
 import type { StaffStatusChecker } from "./lib/staff-status.js";
@@ -304,24 +305,29 @@ export async function buildApp(options: BuildAppOptions = {}) {
     tableRepository,
   });
 
+  const logJobError = (message: string, err: unknown) => app.log.error({ err }, message);
+
   // Session timeout sweep — a scheduled job, not a per-request check
   // (State_Machine §2). Skipped under test: the suite exercises sweepOnce
   // directly, and fake-only boots have no live prisma to sweep against.
+  //
+  // The first run is awaited: on a host that sleeps when idle (Render free),
+  // the request that wakes the API arrives as soon as it listens, and sessions
+  // that timed out while it slept must be closed before that request is served.
   if (config.NODE_ENV !== "test") {
     const sweep = createSessionSweepService({
       prisma: prisma!,
       settings: settingsRepository,
       gateway: app.gateway,
     });
-    const run = () => {
-      void sweep.sweepOnce().catch((err: unknown) => {
-        app.log.error({ err }, "session timeout sweep failed");
-      });
-    };
-    const timer = setInterval(run, 60_000);
-    timer.unref?.();
-    app.addHook("onClose", () => clearInterval(timer));
-    run();
+    const job = await startScheduledJob({
+      name: "session timeout sweep",
+      runOnce: () => sweep.sweepOnce(),
+      intervalMs: 60_000,
+      log: logJobError,
+      awaitFirstRun: true,
+    });
+    app.addHook("onClose", async () => job.stop());
   }
 
   // PENDING reconciliation — polls Midtrans for stale PENDING online payments
@@ -335,15 +341,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
       afterMins: config.RECONCILE_PENDING_AFTER_MINS,
       warn: (message) => app.log.warn(message),
     });
-    const run = () => {
-      void reconcile.reconcileOnce().catch((err: unknown) => {
-        app.log.error({ err }, "payment reconciliation failed");
-      });
-    };
-    const timer = setInterval(run, 60_000);
-    timer.unref?.();
-    app.addHook("onClose", () => clearInterval(timer));
-    run();
+    const job = await startScheduledJob({
+      name: "payment reconciliation",
+      runOnce: () => reconcile.reconcileOnce(),
+      intervalMs: 60_000,
+      log: logJobError,
+    });
+    app.addHook("onClose", async () => job.stop());
   }
 
   return app;

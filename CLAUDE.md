@@ -29,7 +29,7 @@ The functional source of truth is `PRD_QR_Restaurant_Ordering_System_v1.md`. Thi
 | Session / cache / order queue | Redis |
 | Payment | Midtrans Snap API |
 | Image storage | Cloudinary |
-| Deploy | Railway (managed Postgres + Redis) |
+| Deploy | API on Render (Docker, `render.yaml`); PostgreSQL on Supabase; Redis on Upstash; frontends on Vercel — see `docs/Deployment.md` |
 
 TypeScript everywhere. No JavaScript files in app or backend source.
 

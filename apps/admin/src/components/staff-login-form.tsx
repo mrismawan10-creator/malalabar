@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { SERVER_CONNECTING_LABEL, SERVER_WAKING_HINT, useSlowFlag } from "@malalabar/ui";
 import { config } from "@/config";
 
 export function StaffLoginForm({
@@ -14,6 +15,7 @@ export function StaffLoginForm({
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const slow = useSlowFlag(loading);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,6 +76,12 @@ export function StaffLoginForm({
           </div>
 
           {error && <div className="text-danger-ink text-sm bg-danger/10 px-3 py-2 rounded">{error}</div>}
+
+          {slow && (
+            <div role="status" className="text-ink-secondary text-sm bg-warning/15 px-3 py-2 rounded">
+              {SERVER_CONNECTING_LABEL} {SERVER_WAKING_HINT}
+            </div>
+          )}
 
           <button
             type="submit"

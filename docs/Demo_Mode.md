@@ -124,9 +124,10 @@ config.DEMO_AI_DAILY_LIMIT)`. Add the route to `DEMO_ALLOWED_WRITES` and
 
 ## 2. Environment
 
-Use a **dedicated database** for the demo. Dev and production currently share
-one Supabase project (`Deployment.md`), and the demo scripts rewrite the menu
-and delete sessions.
+The demo runs on its **own Supabase project**, separate from the dev database
+(`Deployment.md` §1) — the demo scripts rewrite the menu and delete sessions.
+Hosting is Render free + Supabase free + Upstash free; what that costs the
+demo is summarised under "Free-tier behaviour" below.
 
 ### API
 
@@ -172,10 +173,9 @@ Point the Midtrans **sandbox** notification URL at
 
 ## 3. Setup, in order
 
-Run with `apps/api/.env` pointed at the **demo** database and holding the demo
-API's `JWT_SECRET` (QR tokens are signed with it), `CUSTOMER_APP_URL` = the
-demo customer origin, plus `DEMO_MODE=true`, `DEMO_STAFF_EMAILS` and
-`DEMO_STAFF_PASSWORD` (12+ characters, never committed).
+The full, ordered procedure — shell variables, the database host check, the
+script order and how to verify both demo accounts — is **`Deployment.md` §4**.
+The sequence is:
 
 ```bash
 pnpm --filter @malalabar/db exec prisma migrate deploy   # schema
@@ -183,12 +183,14 @@ pnpm db:seed                    # settings, stages, superadmin — base data
 pnpm --filter api qr:reissue    # sign the base seed's table tokens
 pnpm --filter api demo:seed     # menu, DEMO table, both demo accounts, 30-day history
 pnpm --filter api demo:qr       # prints the customer URL, writes the QR PNG
+pnpm --filter api set-password -- <superadmin-email> <new-password>
 ```
 
-> **⚠️ VERIFIKASI:** the API container also runs `prisma migrate deploy` at
-> start (`Deployment.md`). On a fresh database run either that or the first
-> line above, then check `Deployment.md` for the one-off `migrate resolve`
-> note — it applies only to the old shared database.
+The scripts need the demo API's `JWT_SECRET` (QR tokens are signed with it),
+`CUSTOMER_APP_URL` = the demo customer origin, `DEMO_MODE=true`,
+`DEMO_STAFF_EMAILS` and `DEMO_STAFF_PASSWORD` (12+ characters, never
+committed). A brand-new Supabase project replays every migration; the old
+`migrate resolve` baseline does not apply to it.
 
 `demo:seed` is idempotent: re-running it replaces its own rows (ids start with
 `demo-seed-`) and leaves visitor data alone. History is generated relative to
@@ -198,8 +200,17 @@ status transitions only.
 `demo:qr` writes `apps/api/demo-output/meja-demo.png` (git-ignored) and never
 re-mints the token, so a shared link keeps working.
 
-After seeding, rotate the base-seed superadmin password
-(`pnpm --filter api set-password -- <email> <new>`) — the default is public.
+The last step rotates the base-seed superadmin password — `db:seed` prints
+it, and its default (`admin123`) is public.
+
+### Free-tier behaviour
+
+| What | Effect on the demo |
+|---|---|
+| Render free spins down after 15 idle minutes; waking takes ~1 min ([docs](https://render.com/docs/free)) | The first reviewer after a quiet spell sees "Menyambungkan ke server…" for up to a minute. Open the customer link yourself shortly before a scheduled demo. No keep-alive is used. |
+| Supabase free projects pause after 1 week of inactivity ([pricing](https://supabase.com/pricing)) | A demo left alone for a week fails until you press **Resume** in the Supabase dashboard (⚠️ VERIFIKASI how long resuming takes). `/api/v1/health` still answers while the DB is paused — check with a login. |
+| Upstash free: 500K commands / month ([pricing](https://upstash.com/docs/redis/overall/pricing)) | Far above demo traffic. |
+| Render 750 free instance-hours / month per workspace | Enough for this one service running all month; other free services in the same workspace share it. |
 
 **Upgrading from the single-SUPERADMIN demo:** if the old demo email is one of
 the two new ones, `demo:seed` demotes it to CASHIER/ADMIN. If it is not, it is
@@ -243,8 +254,14 @@ on purpose. Refuses to run without `DEMO_MODE=true`. Exits non-zero on failure.
 
 ### Scheduling the reset
 
-Nothing is scheduled by this repo. Any scheduler works if it can meet these
-requirements:
+Nothing is scheduled by this repo, and **Render's free tier has no
+scheduler**: cron jobs are a separate, paid service type ("minimum monthly
+charge of $1 per cron job service", https://render.com/docs/cronjobs), and
+free instances exist only for web services, Postgres, Key Value and static
+sites (https://render.com/docs/free). A timer inside the API would not be
+reliable either — the free instance sleeps and "might restart … at any time".
+
+Any scheduler works if it can meet these requirements:
 
 - **Runtime:** Node 22 (what the root `Dockerfile` uses) + pnpm with this repo
   installed (`pnpm install`), or the API's Docker image with its start command
@@ -271,7 +288,11 @@ Options, simplest first:
 | **(a) Manual** | Run the command before each demo. No moving parts; fine for a handful of reviewers. |
 | **(b) A machine you control** | cron or a systemd timer on a server/VM with the repo checked out and an env file readable only by that user. **⚠️ VERIFIKASI:** the scheduler's timezone and that the env file is loaded by the job (cron does not read your shell profile). |
 | **(c) Scheduled CI job** | e.g. a scheduled workflow that installs the repo and runs the command, with the variables stored as CI secrets. **⚠️ VERIFIKASI:** the CI provider's schedule syntax and timezone, that its runners can reach the database (IP allowlists, poolers), and that secrets are masked in logs. |
-| **(d) Hosting platform's scheduled jobs** | Many hosts can run a service or container on a cron schedule. **⚠️ VERIFIKASI:** whether your plan supports it, the expected start command and exit behaviour, timezone, and how variables are shared with the API service. |
+| **(d) Render Cron Job (paid)** | Same repo and Dockerfile, start command `pnpm --filter api demo:reset`, at least $1/month. **⚠️ VERIFIKASI:** the plan, the cron syntax/timezone, and how variables are shared with the API service. |
+
+Any scheduled reset is real database activity, so it also keeps the Supabase
+project from pausing — not a ping, but the same effect. Decide whether you want
+that.
 
 ---
 

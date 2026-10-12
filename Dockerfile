@@ -1,13 +1,11 @@
-# Railway image for the API (Fastify + Socket.io).
+# Image for the API (Fastify + Socket.io), built by Render from render.yaml.
 #
 # This service cannot go on a serverless host: Socket.io needs a process that
 # stays alive between requests, and the whole realtime layer (customer order
 # tracking, KDS cards, cashier notifications) depends on it.
 #
-# It lives at the repo root for two reasons: the build context has to be the
-# root for pnpm workspace links to resolve, and Railway picks up a root
-# Dockerfile automatically — no builder config to keep in sync. (Railway's
-# railway.json is deprecated and was silently ignored in favour of Railpack.)
+# It lives at the repo root because the build context has to be the root for
+# pnpm workspace links to resolve (render.yaml: dockerContext ".").
 FROM node:22-slim
 
 # Prisma's query engine links against OpenSSL; the slim image does not carry it.
@@ -48,7 +46,7 @@ RUN pnpm --filter @malalabar/db generate
 RUN pnpm --filter api build
 
 ENV NODE_ENV=production
-# Railway injects PORT; config.ts falls back to 4000 locally.
+# Render injects PORT (default 10000); config.ts falls back to 4000 locally.
 EXPOSE 4000
 
 # Migrations run at boot. Safe for the single instance this product needs; if

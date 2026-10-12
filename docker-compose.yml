@@ -1,6 +1,6 @@
 # Local development dependencies only.
 #
-# Production uses Railway's managed Postgres + Redis (SDD_Core §3); this file
+# Production uses Supabase Postgres + Upstash Redis (SDD_Core §3); this file
 # exists so a developer can run the stack without installing either natively.
 # Credentials here are deliberately trivial — nothing sensitive belongs in a
 # file that is committed.

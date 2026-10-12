@@ -17,6 +17,8 @@ export function CashierInterface() {
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  // False until the first successful connect: the API may still be waking up.
+  const [hasConnected, setHasConnected] = useState(false);
   const [readyNotifications, setReadyNotifications] = useState<Set<string>>(new Set());
   const socketRef = useRef<any>(null);
   const notificationTimeoutRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
@@ -67,6 +69,7 @@ export function CashierInterface() {
       socket.on("connect", () => {
         setIsConnected(true);
         setIsReconnecting(false);
+        setHasConnected(true);
         fetchPendingOrders();
         fetchActiveTables();
       });
@@ -176,7 +179,11 @@ export function CashierInterface() {
             </p>
           </div>
           <div className="flex items-center gap-4">
-            <ConnectionStatus connected={isConnected} reconnecting={isReconnecting} />
+            <ConnectionStatus
+            connected={isConnected}
+            reconnecting={isReconnecting}
+            connecting={!hasConnected}
+          />
             <AdminNav onLogout={handleLogout} />
           </div>
         </div>

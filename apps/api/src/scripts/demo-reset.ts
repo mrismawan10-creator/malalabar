@@ -1,6 +1,7 @@
 /**
  * Wipes visitor-made sessions/orders/payments and re-runs demo:seed
- * (docs/Demo_Mode.md — schedule it as a Railway cron service).
+ * (docs/Demo_Mode.md §5 — nothing schedules it; run it by hand or from a
+ * scheduler of your choice).
  *
  *   pnpm --filter api demo:reset
  *

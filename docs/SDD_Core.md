@@ -73,18 +73,20 @@ route (Fastify) → validate (zod) → service (business logic) → repository (
 
 ---
 
-## 3. Runtime topology (Railway)
+## 3. Runtime topology
 
-| Service | Type |
-|---|---|
-| `api` | Node service (Fastify + Socket.io, same process/port) |
-| `customer`, `admin`, `kds` | Three Next.js services |
-| PostgreSQL | Railway managed |
-| Redis | Railway managed |
+| Service | Type | Host |
+|---|---|---|
+| `api` | Node service (Fastify + Socket.io, same process/port) | Render (Docker, free web service) |
+| `customer`, `admin`, `kds` | Three Next.js apps | Vercel |
+| PostgreSQL | Managed | Supabase (session pooler) |
+| Redis | Managed | Upstash |
+
+The free API instance sleeps when idle and wakes on the next request (~1 min); see Deployment.md for the consequences.
 
 Single Socket.io node for V1. The 50-concurrent-user target (PRD 6) is comfortably within one node, so no Redis socket adapter is required for V1 — but **structure the realtime gateway so adding `@socket.io/redis-adapter` later is a one-file change** (do not scatter `io.emit` calls across services; everything goes through the gateway). This keeps horizontal scaling cheap without paying complexity now. (ADR-5.)
 
-Environments: `development` (local), `production` (Railway). A `staging` is optional; do not build CI/CD pipelines as part of feature work.
+Environments: `development` (local), `production` (Render + Supabase + Upstash). A `staging` is optional; do not build CI/CD pipelines as part of feature work.
 
 ---
 
@@ -141,7 +143,7 @@ Enforce at the service layer with a Redis lock keyed on `table:{tableId}:session
 
 ## 6. Security architecture
 
-- All traffic HTTPS/TLS (Railway-terminated).
+- All traffic HTTPS/TLS (terminated by Render's load balancer for the API, by Vercel for the frontends).
 - **Three token types:**
   1. Staff JWT (admin/superadmin/cashier) — signed, short expiry + refresh, role claim inside.
   2. Customer session token — signed, bound to `sessionId` + `tableId`, expires with the session. Grants only customer-scoped actions on that session.

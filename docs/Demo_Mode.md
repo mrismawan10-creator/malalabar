@@ -36,16 +36,26 @@ service would call (`apps/api/src/lib/midtrans-urls.ts`) are not
 Today the URLs follow the flag, so both checks trip together; the URL check is
 there for the day the URLs become configurable.
 
-A server key that does not start with `SB-Mid-server-` (or is empty) only
-**logs a warning** — the API still starts:
+The key format is **not** checked: some Midtrans sandbox accounts issue keys
+starting with `Mid-server-` / `Mid-client-` — no `SB-` — exactly like
+production keys. A server key without `SB-Mid-server-` (or an empty one) only
+**logs a warning** and the API still starts:
 
 ```
-[config] Demo Mode: MIDTRANS_SERVER_KEY does not start with SB-Mid-server- — check it is a sandbox key; …
+[config] Demo Mode: MIDTRANS_SERVER_KEY has no SB-Mid-server- prefix. That alone does not make it a production key …
 ```
 
-> **⚠️ VERIFIKASI:** that your sandbox server key does start with
-> `SB-Mid-server-` (so the warning stays quiet), in the Midtrans sandbox
-> dashboard.
+What proves a key is sandbox is the sandbox API accepting it. A read-only
+status check for a made-up order answers **404** ("Transaction doesn't
+exist") to a sandbox key and **401** to a key from the other environment:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -u "<server-key>:" \
+  https://api.sandbox.midtrans.com/v2/key-probe-1/status
+```
+
+Do this whenever the keys change. A production key here does not move money
+(the sandbox URLs reject it), but every online payment in the demo fails.
 
 ### Two shared staff accounts — no SUPERADMIN
 `DEMO_STAFF_EMAILS` lists exactly two emails, **in order `<cashier>,<admin>`**.
@@ -139,8 +149,8 @@ On top of the normal variables in `Deployment.md`:
 | `DEMO_STAFF_EMAILS` | `<cashier>,<admin>`, e.g. `kasir.demo@malalabar.id,admin.demo@malalabar.id` |
 | `DEMO_AI_DAILY_LIMIT` | `20` (default) |
 | `MIDTRANS_IS_PRODUCTION` | `false` |
-| `MIDTRANS_SERVER_KEY` | sandbox key, `SB-Mid-server-…` (other prefixes only warn) |
-| `MIDTRANS_CLIENT_KEY` | sandbox key, `SB-Mid-client-…` |
+| `MIDTRANS_SERVER_KEY` | the **sandbox** server key (from the sandbox dashboard; may or may not start with `SB-`) — verify with the 401/404 check in §1 |
+| `MIDTRANS_CLIENT_KEY` | the **sandbox** client key |
 
 `DEMO_STAFF_PASSWORD` is **not** needed by the API — only wherever the demo
 scripts run. Both accounts share it.
@@ -153,7 +163,7 @@ lockout active.
 | Variable | Value |
 |---|---|
 | `NEXT_PUBLIC_DEMO_MODE` | `true` on all three |
-| `NEXT_PUBLIC_MIDTRANS_CLIENT_KEY` | customer only: the `SB-Mid-client-…` key |
+| `NEXT_PUBLIC_MIDTRANS_CLIENT_KEY` | customer only: the **sandbox** client key |
 | `NEXT_PUBLIC_MIDTRANS_SNAP_URL` | customer only: `https://app.sandbox.midtrans.com/snap/snap.js` (also the default when unset) |
 
 `NEXT_PUBLIC_*` values are inlined at build time, so the apps must be rebuilt

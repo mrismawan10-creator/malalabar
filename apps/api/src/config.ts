@@ -6,7 +6,9 @@ import { isSandboxMidtransUrl, midtransBaseUrls } from "./lib/midtrans-urls.js";
 const CUSTOMER_APP_URL_DEV_DEFAULT = "http://localhost:3000";
 const KDS_APP_URL_DEV_DEFAULT = "http://localhost:3002";
 
-/** Prefix Midtrans sandbox server keys usually carry — a hint, not proof. */
+/** Prefix many Midtrans sandbox server keys carry. Some sandbox accounts issue
+ *  keys without it, so its absence is a hint to double-check, never proof of
+ *  a production key. */
 const MIDTRANS_SANDBOX_SERVER_KEY_PREFIX = "SB-Mid-server-";
 
 /**
@@ -78,8 +80,10 @@ export function checkDemoMidtrans(env: DemoMidtransEnv): DemoMidtransCheck {
   }
   if (!env.MIDTRANS_SERVER_KEY.startsWith(MIDTRANS_SANDBOX_SERVER_KEY_PREFIX)) {
     result.warnings.push(
-      `MIDTRANS_SERVER_KEY does not start with ${MIDTRANS_SANDBOX_SERVER_KEY_PREFIX} — ` +
-        "check it is a sandbox key; sandbox requests with a production key will fail",
+      `MIDTRANS_SERVER_KEY has no ${MIDTRANS_SANDBOX_SERVER_KEY_PREFIX} prefix. That alone ` +
+        "does not make it a production key (some sandbox accounts issue keys without it), " +
+        "but confirm it comes from the sandbox dashboard: the sandbox API answers 401 to a " +
+        "key from the other environment (docs/Deployment.md).",
     );
   }
   return result;

@@ -58,7 +58,8 @@ services:
         sync: false
       - key: KDS_APP_URL
         sync: false
-      # Midtrans SANDBOX keys (SB-Mid-server-… / SB-Mid-client-…).
+      # Midtrans SANDBOX keys — some accounts' sandbox keys start with "Mid-",
+      # not "SB-Mid-"; verify with the sandbox probe in docs/Deployment.md.
       - key: MIDTRANS_SERVER_KEY
         sync: false
       - key: MIDTRANS_CLIENT_KEY

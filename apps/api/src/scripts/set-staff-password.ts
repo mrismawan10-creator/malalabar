@@ -3,7 +3,10 @@
  * does not exist yet, so this is the only way in until Slice 7). Hashes with
  * bcryptjs the same way the seed and login flow do.
  *
- *   pnpm --filter api set-password -- <email> <new-password>
+ *   pnpm --filter api set-password <email> <new-password>
+ *
+ * No `--` before the arguments: pnpm passes it through literally, and the
+ * script would read `--` as the email.
  *
  * Runs against whatever DATABASE_URL is in apps/api/.env — point that at the
  * right database (dev vs. production currently share one; see
@@ -15,7 +18,7 @@ import { getPrisma, disconnectPrisma } from "../lib/prisma.js";
 async function main(): Promise<void> {
   const [email, password] = process.argv.slice(2);
   if (!email || !password) {
-    console.error("Usage: pnpm --filter api set-password -- <email> <new-password>");
+    console.error("Usage: pnpm --filter api set-password <email> <new-password>");
     process.exitCode = 1;
     return;
   }

@@ -92,3 +92,9 @@ describe("TRUST_PROXY_HOPS", () => {
     expect(config.TRUST_PROXY_HOPS).toBe(0);
   });
 });
+
+describe("CLIENT_IP_HEADER", () => {
+  it("is unset by default (no behaviour change)", () => {
+    expect(config.CLIENT_IP_HEADER).toBeUndefined();
+  });
+});

@@ -8,6 +8,8 @@ import { AppError } from "./lib/errors.js";
 import { disconnectPrisma, getPrisma } from "./lib/prisma.js";
 import { disconnectRedis } from "./lib/redis.js";
 import { registerRateLimit } from "./lib/rate-limit.js";
+import type { ClientIpHeader } from "./lib/client-ip.js";
+import { registerClientIp, reqLogSerializer } from "./lib/client-ip.js";
 import type { SocketTokenVerifier } from "./realtime/index.js";
 import { realtimePlugin } from "./realtime/index.js";
 import type {
@@ -94,17 +96,27 @@ export interface BuildAppOptions {
   rateLimit?: boolean;
   /** Tests only: overrides TRUST_PROXY_HOPS. */
   trustProxyHops?: number;
+  /** Tests only: overrides CLIENT_IP_HEADER. */
+  clientIpHeader?: ClientIpHeader;
   stageRepository?: StageRepository;
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
+  const clientIpHeader = options.clientIpHeader ?? config.CLIENT_IP_HEADER;
   const app = Fastify({
-    logger: config.NODE_ENV !== "test",
+    // Request logs report the same client address the rate limit uses.
+    logger:
+      config.NODE_ENV !== "test"
+        ? { serializers: { req: reqLogSerializer(clientIpHeader) } }
+        : false,
     // Trust exactly the proxies in front of us, never the whole
     // X-Forwarded-For chain — its leftmost entries are client-controlled and
     // would let anyone pick their own rate-limit bucket.
     trustProxy: options.trustProxyHops ?? config.TRUST_PROXY_HOPS,
   });
+
+  // First hook of all: rate limiting and audit IPs read request.ip after it.
+  registerClientIp(app, clientIpHeader);
 
   await app.register(cors, {
     origin: config.CORS_ORIGINS.split(",").map((o) => o.trim()),

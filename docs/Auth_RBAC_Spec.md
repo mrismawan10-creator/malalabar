@@ -19,7 +19,7 @@ Authentication and authorization are the security boundary. The single governing
 | Customer session token | Anonymous diner | Until session terminal state | Actions on its own session only |
 | KDS device token | Kitchen station | Long-lived (manual revoke) | Kitchen actions only |
 
-There is **no fourth role**. Owner = SUPERADMIN inside the app; infrastructure/support access lives in Railway + Postgres, outside the app (locked decision).
+There is **no fourth role**. Owner = SUPERADMIN inside the app; infrastructure/support access lives in the hosting dashboards (Render, Supabase, Upstash, Vercel), outside the app (locked decision).
 
 ---
 
@@ -130,7 +130,7 @@ SUPERADMIN passes every staff check (superset of ADMIN + CASHIER). Implement thi
 
 ## 6. Transport & misc
 
-- All traffic HTTPS/TLS (Railway-terminated). No token ever travels over plain HTTP.
+- All traffic HTTPS/TLS (terminated by Render's load balancer for the API). No token ever travels over plain HTTP.
 - Tokens in `Authorization: Bearer`. For sockets, in the handshake `auth` payload (§Realtime_Events §1).
 - CORS: allow only the known frontend origins (customer/admin/kds domains). No wildcard in production.
 - Rate-limit `/auth/staff/login` and `/sessions` to blunt brute force / token-farming.
@@ -191,4 +191,8 @@ quota) and no fail-open when Redis is unreachable or out of quota. This is
 correct only for **one** API instance. With several replicas each would count
 separately, multiplying every limit by the replica count; that needs a shared
 store again (Redis via the plugin's `redis` option, sized against the Redis
-plan's command quota). Counters also reset on every restart or deploy.
+plan's command quota). Counters also reset on every restart or deploy — and
+on Render's free tier that includes every spin-down after 15 idle minutes and
+any unannounced restart ("might restart … at any time",
+https://render.com/docs/free). A sustained attack keeps the instance awake, so
+the counters hold while they matter.

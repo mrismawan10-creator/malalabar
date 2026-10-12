@@ -33,6 +33,8 @@ export function KdsDisplay() {
   const [orders, setOrders] = useState<KdsOrderCard[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  // False until the first successful connect: the API may still be waking up.
+  const [hasConnected, setHasConnected] = useState(false);
   const [deviceToken, setDeviceToken] = useState<string>("");
   const [booting, setBooting] = useState(true);
   const [enrolError, setEnrolError] = useState("");
@@ -90,6 +92,7 @@ export function KdsDisplay() {
       socket.on("connect", () => {
         setIsConnected(true);
         setIsReconnecting(false);
+        setHasConnected(true);
         fetchOrders();
       });
 
@@ -259,7 +262,11 @@ export function KdsDisplay() {
           </p>
         </div>
         <div className="flex items-center gap-4">
-          <ConnectionStatus connected={isConnected} reconnecting={isReconnecting} />
+          <ConnectionStatus
+            connected={isConnected}
+            reconnecting={isReconnecting}
+            connecting={!hasConnected}
+          />
           <button
             onClick={handleLogout}
             className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium"

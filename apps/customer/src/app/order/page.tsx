@@ -11,7 +11,13 @@ import type {
   OrderRejectedPayload,
   PaymentMethod,
 } from "@malalabar/types";
-import { ApiClientError, createApiClient } from "@malalabar/ui";
+import {
+  ApiClientError,
+  createApiClient,
+  SERVER_CONNECTING_LABEL,
+  SERVER_WAKING_HINT,
+  useSlowFlag,
+} from "@malalabar/ui";
 import { config } from "@/config";
 import { ALL_CATEGORY, CategoryNav } from "@/components/category-nav";
 import { CartDrawer } from "@/components/cart-drawer";
@@ -83,6 +89,8 @@ function OrderScreen() {
   const [view, setView] = useState<View>("menu");
   const [bootError, setBootError] = useState<string | null>(null);
   const [booting, setBooting] = useState(true);
+  // A boot that takes this long is the API waking up (Render free sleeps).
+  const slowBoot = useSlowFlag(booting);
 
   const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORY);
   const [openItemId, setOpenItemId] = useState<string | null>(null);
@@ -335,7 +343,14 @@ function OrderScreen() {
   if (booting) {
     return (
       <main className="flex min-h-dvh items-center justify-center p-6">
-        <p className="text-base text-ink-muted">Menyiapkan menu…</p>
+        {slowBoot ? (
+          <div role="status" className="max-w-xs text-center">
+            <p className="text-base text-ink">{SERVER_CONNECTING_LABEL}</p>
+            <p className="mt-2 text-sm text-ink-muted">{SERVER_WAKING_HINT}</p>
+          </div>
+        ) : (
+          <p className="text-base text-ink-muted">Menyiapkan menu…</p>
+        )}
       </main>
     );
   }

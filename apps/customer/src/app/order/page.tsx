@@ -417,16 +417,17 @@ function OrderScreen() {
     return (
       <>
         {rejectedBanner}
-        {/* Always offer a way back: a shared table can land a fresh scan here
-            on someone else's pending cash/card payment, and the menu stays
-            usable meanwhile (ordering is not blocked by a pending payment). */}
+        {/* Always offer a way back to the menu from the order summary: a
+            shared table can land a fresh scan here on someone else's pending
+            cash/card payment, and the menu stays usable meanwhile (ordering
+            is not blocked by a pending payment). */}
         <div className="mx-auto w-full max-w-md px-4 pt-4">
           <button
             type="button"
             onClick={() => setView("menu")}
-            className="text-sm font-semibold text-ink underline"
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border-[2.5px] border-ink-line bg-surface-raised px-4 text-base font-semibold text-ink shadow-hard active:translate-x-[2px] active:translate-y-[2px] active:shadow-none motion-reduce:active:translate-x-0 motion-reduce:active:translate-y-0"
           >
-            {pendingMethod ? "← Kembali ke menu" : "← Tambah pesanan lain"}
+            <span aria-hidden="true">←</span> Kembali ke menu
           </button>
         </div>
         <BillCheckout

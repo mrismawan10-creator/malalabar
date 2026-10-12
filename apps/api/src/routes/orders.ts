@@ -43,7 +43,10 @@ export const orderRoutes: FastifyPluginAsync<Options> = async (
 
   app.post(
     "/sessions/:sessionId/orders",
-    { preHandler: guard },
+    {
+      preHandler: guard,
+      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+    },
     async (request, reply) => {
       const { sessionId } = paramsSchema.parse(request.params);
       const body = bodySchema.parse(request.body);

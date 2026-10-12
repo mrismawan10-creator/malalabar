@@ -37,9 +37,10 @@ runtime, so the API needs a host that runs a long-lived container. That is why
 
 ## 1. API on Railway
 
-Railway reads `railway.json` at the repo root, which points at
-`apps/api/Dockerfile`. The build context is the repo root so pnpm workspace
-links resolve.
+Railway builds the `Dockerfile` at the **repo root**, which it picks up
+automatically — there is no `railway.json` (it was removed in `5403d28`; Railway
+had been ignoring it). The Dockerfile lives at the root because the build
+context must be the root for pnpm workspace links to resolve.
 
 1. New project → **Deploy from GitHub repo** → this repo, branch `main`.
 2. Add a **Redis** service in the same project (or use an Upstash URL).
@@ -60,6 +61,7 @@ links resolve.
 | `CLOUDINARY_URL` | `cloudinary://key:secret@cloud` |
 | `MIDTRANS_SERVER_KEY` / `MIDTRANS_CLIENT_KEY` | from the Midtrans dashboard |
 | `MIDTRANS_IS_PRODUCTION` | `false` until the real launch |
+| `TRUST_PROXY_HOPS` | **required** — see "Client IP behind the proxy" below |
 
 `PORT` is injected by Railway — do not set it.
 
@@ -116,6 +118,17 @@ Chicken-and-egg: Vercel domains are not known until the first deploy, and
 `CORS_ORIGINS` and `CUSTOMER_APP_URL` on Railway and redeploy the API.
 
 ---
+
+## Public demo
+
+To run a reviewer-facing demo instead of a live restaurant, see
+[`Demo_Mode.md`](Demo_Mode.md) — env vars, seed/QR/reset scripts and the exit
+checklist.
+
+`MIDTRANS_IS_PRODUCTION` is now parsed strictly. Before this fix any non-empty
+value, including `false`, was read as **true** (`z.coerce.boolean`), so a
+deployment that set `false` as instructed below was calling Midtrans
+production endpoints. Check which keys that deployment was using.
 
 ## 3. After the first deploy
 
@@ -178,6 +191,25 @@ environments now hold *different* `JWT_SECRET`s, a table token can only be
 valid for one of them at a time — regenerating a QR from the local admin UI
 breaks production, and vice versa. Give production its own Supabase project
 before the restaurant opens.
+
+**Client IP behind the proxy (`TRUST_PROXY_HOPS`).** Rate limits and audit
+IPs use the client address, which the API only sees through the proxies'
+`X-Forwarded-For` header. The API trusts exactly `TRUST_PROXY_HOPS` proxies and
+refuses to start in production without the variable. Get it wrong one way and
+any client can forge its IP past the login limits; the other way and every
+client shares one bucket, so a busy evening can lock out staff login and QR
+scans. Neither Railway's nor Render's documentation states the hop count
+outright (Render: traffic passes Cloudflare and Render's load balancer —
+<https://render.com/articles/how-render-handles-ddos-attacks>), so **measure
+it after every deploy to a new host**:
+
+1. Set `TRUST_PROXY_HOPS=1` and deploy.
+2. `curl -H "X-Forwarded-For: 203.0.113.7" https://<api-domain>/api/v1/health`
+3. Find that request in the service logs and read `remoteAddress`:
+   - `203.0.113.7` → too many hops trusted (the forged value won): lower it.
+   - your own public IP → correct.
+   - an address that is not yours (Cloudflare / load balancer) → too few:
+     raise it to `2` and repeat.
 
 **Railway injects `PORT`.** The app honours it (config.ts defaults to 4000 only
 when unset), so the generated domain must target the injected port — 8080 at

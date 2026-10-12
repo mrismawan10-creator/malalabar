@@ -42,7 +42,31 @@ The server derives role/scope from the verified token. **Never** from the body. 
 | 404 | Resource not found |
 | 409 | State conflict (e.g. session already paid, double-approve) |
 | 422 | Business rule violation (e.g. required customization missing) |
+| 429 | `RATE_LIMITED` — too many requests; retry after the window |
 | 500 | Unexpected — never leak internals |
+
+Rate limits (`apps/api/src/lib/rate-limit.ts`):
+
+| Scope | Limit | Bucket |
+|---|---|---|
+| Every route without its own limit | 300/min | verified identity, else IP |
+| `POST /auth/staff/login` | 5/min | **IP only** |
+| `POST /auth/staff/login` | 10 per 15 min | **per email** (normalised), counted before any lookup |
+| `POST /auth/kitchen/login` | 5/min | **IP only** |
+| `POST /sessions` | 30/min | **IP only** |
+| `POST /webhooks/midtrans` | 60/min | **IP only** |
+| `POST /auth/staff/change-password` | 10/min | verified identity, else IP |
+| `POST /sessions/:id/orders` | 30/min | verified identity, else IP |
+| `POST /sessions/:id/payment` | 10/min | verified identity, else IP |
+| `GET /sessions/:id/payment-status` | 60/min | verified identity, else IP |
+
+- **IP only:** routes reachable without a token ignore the `Authorization` header, so a made-up token can never buy a fresh quota.
+- **Verified identity:** the bearer token's signature is checked (no database read) and the bucket is `staff:<id>`, `kds:<id>` or `session:<id>`; a token that does not verify counts against the client IP. Customers at one table share their session's bucket.
+- **Client IP** is resolved with `TRUST_PROXY_HOPS` (Env_Reference): only that many proxies' `X-Forwarded-For` entries are trusted, so a forged leftmost entry is ignored.
+- **Store:** in memory, per API process — no Redis commands, nothing to fail open. Counters reset on restart; correct for a single instance only (Auth_RBAC_Spec §8.4).
+- Limits are counted on `onRequest`, before the body is parsed and before the guard runs, so refused requests count too.
+
+A 429 always uses the shape below with `code: "RATE_LIMITED"` and a message saying how many seconds to wait. The per-email limit answers identically for registered and unknown emails.
 
 ### 1.3 Pagination (list endpoints)
 
@@ -76,6 +100,19 @@ Enforcement: an account with `mustReset=true` is blocked with 403
 `PASSWORD_RESET_REQUIRED` on every route outside `/auth/` until the password
 is changed; `newPassword` min 8 chars; wrong `currentPassword` → 401
 `INVALID_PASSWORD` (Auth_RBAC_Spec §2.1).
+
+**Demo Mode** (docs/Demo_Mode.md). Accounts listed in `DEMO_STAFF_EMAILS`
+(the shared demo CASHIER and ADMIN) keep their normal role checks, plus:
+- `DEMO_MODE=true` → 403 `DEMO_FORBIDDEN` ("Fitur ini dinonaktifkan di Mode
+  Demo.") on **every non-GET request except** `POST
+  /cashier/orders/:orderId/{approve,reject,serve}` and `POST
+  /cashier/payments/:paymentId/confirm` (allowlist, `DEMO_ALLOWED_WRITES`), and
+  on reads of `/superadmin/staff*`, `/superadmin/audit-log`,
+  `/superadmin/kitchen-devices*`.
+- `DEMO_MODE` not `true` → login answers 401 `INVALID_CREDENTIALS` (identical
+  to a wrong password), any staff token for the account gets 401
+  `UNAUTHORIZED`, and its socket handshake is refused.
+With `DEMO_STAFF_EMAILS` empty, neither applies — no behaviour change.
 
 ### `POST /sessions`  ← customer entry point (QR scan)
 Public. Validates table token, returns the open session for that table (creating one if none) plus a customer session token.

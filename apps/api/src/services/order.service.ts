@@ -16,7 +16,7 @@ import type {
 } from "../repositories/order.repository.js";
 import type { SettingsRepository } from "../repositories/session.repository.js";
 
-interface PricedItem {
+export interface PricedItem {
   persist: PersistOrderInput["items"][number];
   snapshot: OrderItemSnapshot;
 }
@@ -33,8 +33,10 @@ function unavailable(name: string): AppError {
  * request (CLAUDE.md hard rule 2), and are copied onto the order rather than
  * referenced, so editing the menu later cannot rewrite this order
  * (hard rule 3, Data_Model §3.1).
+ *
+ * Exported so the demo history seed prices through this exact code path.
  */
-function priceItem(
+export function priceItem(
   request: CreateOrderItemRequest,
   menuItem: OrderMenuItemRow,
 ): PricedItem {

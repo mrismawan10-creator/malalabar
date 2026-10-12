@@ -8,4 +8,6 @@ export const config = {
   midtransSnapUrl:
     process.env["NEXT_PUBLIC_MIDTRANS_SNAP_URL"] ??
     "https://app.sandbox.midtrans.com/snap/snap.js",
+  /** Shows the Demo Mode banner (docs/Demo_Mode.md). Off unless exactly "true". */
+  demoMode: process.env["NEXT_PUBLIC_DEMO_MODE"] === "true",
 } as const;

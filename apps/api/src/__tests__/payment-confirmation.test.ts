@@ -15,20 +15,21 @@ describe("CashierService - confirmPayment", () => {
     };
 
     mockPrisma = {
+      $transaction: vi.fn(async (fn: (tx: any) => unknown) => fn(mockPrisma)),
       payment: {
         findUnique: vi.fn(),
-        update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       } as any,
       order: {
         findMany: vi.fn().mockResolvedValue([]),
       } as any,
       tableSession: {
-        update: vi.fn(),
+        update: vi.fn().mockResolvedValue({ id: "session-1", status: "PAID" }),
       } as any,
       auditLog: {
-        create: vi.fn(),
+        create: vi.fn().mockResolvedValue({ id: "log-1" }),
       } as any,
-    };
+    } as any;
   });
 
   describe("confirmPayment", () => {
@@ -36,7 +37,6 @@ describe("CashierService - confirmPayment", () => {
       const paymentId = "payment-1";
       const staffId = "staff-1";
       const sessionId = "session-1";
-      const now = new Date();
 
       (mockPrisma.payment!.findUnique as any).mockResolvedValue({
         id: paymentId,
@@ -45,23 +45,6 @@ describe("CashierService - confirmPayment", () => {
         totalAmount: 150000,
         sessionId,
         session: { status: "OPEN", table: { number: "5" } },
-      });
-
-      (mockPrisma.payment!.update as any).mockResolvedValue({
-        id: paymentId,
-        method: "CASH",
-        status: "PAID",
-        totalAmount: 150000,
-        paidAt: now,
-      });
-
-      (mockPrisma.tableSession!.update as any).mockResolvedValue({
-        id: sessionId,
-        status: "PAID",
-      });
-
-      (mockPrisma.auditLog!.create as any).mockResolvedValue({
-        id: "log-1",
       });
 
       const service = createCashierService({
@@ -78,14 +61,14 @@ describe("CashierService - confirmPayment", () => {
           method: "CASH",
           status: "PAID",
           totalAmount: 150000,
-          confirmedAt: now.toISOString(),
+          confirmedAt: expect.any(String),
         },
         sessionClosed: true,
       });
 
-      expect(mockPrisma.payment!.update).toHaveBeenCalledWith(
+      expect(mockPrisma.payment!.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: paymentId },
+          where: { id: paymentId, status: "PENDING" },
           data: expect.objectContaining({ status: "PAID" }),
         }),
       );
@@ -97,8 +80,46 @@ describe("CashierService - confirmPayment", () => {
         }),
       );
 
+      expect(mockPrisma.auditLog!.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ action: "CONFIRM_PAYMENT" }),
+        }),
+      );
+
       expect(mockGateway.paymentConfirmed).toHaveBeenCalled();
       expect(mockGateway.sessionClosed).toHaveBeenCalled();
+    });
+
+    it("rejects a concurrent confirmation that lost the status guard", async () => {
+      (mockPrisma.payment!.findUnique as any).mockResolvedValue({
+        id: "payment-1",
+        status: "PENDING",
+        method: "CASH",
+        totalAmount: 150000,
+        sessionId: "session-1",
+        session: { status: "OPEN", table: { number: "5" } },
+      });
+      (mockPrisma.payment!.updateMany as any).mockResolvedValue({ count: 0 });
+
+      const service = createCashierService({
+        orderRepository: {} as any,
+        prisma: mockPrisma as PrismaClient,
+        gateway: mockGateway as RealtimeGateway,
+      });
+
+      await expect(
+        service.confirmPayment("payment-1", "staff-2"),
+      ).rejects.toThrow(
+        expect.objectContaining({
+          code: "PAYMENT_NOT_PENDING",
+          statusCode: 409,
+        }),
+      );
+
+      expect(mockPrisma.tableSession!.update).not.toHaveBeenCalled();
+      expect(mockPrisma.auditLog!.create).not.toHaveBeenCalled();
+      expect(mockGateway.paymentConfirmed).not.toHaveBeenCalled();
+      expect(mockGateway.sessionClosed).not.toHaveBeenCalled();
     });
 
     it("throws error when payment not found", async () => {

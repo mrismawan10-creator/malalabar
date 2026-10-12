@@ -1,11 +1,13 @@
 import Fastify from "fastify";
+import type { onRouteHookHandler } from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
 import type { ApiError } from "@malalabar/types";
-import { config } from "./config.js";
+import { config, parseDemoStaffEmails } from "./config.js";
 import { AppError } from "./lib/errors.js";
 import { disconnectPrisma, getPrisma } from "./lib/prisma.js";
 import { disconnectRedis } from "./lib/redis.js";
+import { registerRateLimit } from "./lib/rate-limit.js";
 import type { SocketTokenVerifier } from "./realtime/index.js";
 import { realtimePlugin } from "./realtime/index.js";
 import type {
@@ -57,6 +59,7 @@ import type { StageRepository } from "./repositories/stage.repository.js";
 import { createPrismaStageRepository } from "./repositories/stage.repository.js";
 import type { StaffStatusChecker } from "./lib/staff-status.js";
 import { createStaffStatusChecker } from "./lib/staff-status.js";
+import type { DemoPolicy } from "./lib/demo-policy.js";
 import type { KitchenDeviceStatusChecker } from "./lib/kitchen-device-status.js";
 import { createKitchenDeviceStatusChecker } from "./lib/kitchen-device-status.js";
 import { createKitchenDeviceAdminService } from "./services/kitchen-device-admin.service.js";
@@ -80,18 +83,36 @@ export interface BuildAppOptions {
   staffStatusChecker?: StaffStatusChecker;
   /** Per-request active/tokenVersion check behind every KDS guard. */
   kitchenDeviceStatusChecker?: KitchenDeviceStatusChecker;
+  /** Demo Mode policy; defaults to DEMO_MODE / DEMO_STAFF_EMAILS. */
+  demoPolicy?: DemoPolicy;
+  /** Tests only: sees (and may extend) every route as it is registered — the
+   *  demo contract test appends a terminal preHandler to prove the guards
+   *  let a request through without touching the database. */
+  onRoute?: onRouteHookHandler;
+  /** Tests only: rate limiting is off under NODE_ENV=test unless forced on. */
+  rateLimit?: boolean;
+  /** Tests only: overrides TRUST_PROXY_HOPS. */
+  trustProxyHops?: number;
   stageRepository?: StageRepository;
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
     logger: config.NODE_ENV !== "test",
+    // Trust exactly the proxies in front of us, never the whole
+    // X-Forwarded-For chain — its leftmost entries are client-controlled and
+    // would let anyone pick their own rate-limit bucket.
+    trustProxy: options.trustProxyHops ?? config.TRUST_PROXY_HOPS,
   });
 
   await app.register(cors, {
     origin: config.CORS_ORIGINS.split(",").map((o) => o.trim()),
     // Lets the admin app read the QR download filename cross-origin.
     exposedHeaders: ["Content-Disposition"],
+  });
+
+  await registerRateLimit(app, {
+    enabled: options.rateLimit ?? config.NODE_ENV !== "test",
   });
 
   app.setNotFoundHandler((_req, reply) => {
@@ -141,6 +162,14 @@ export async function buildApp(options: BuildAppOptions = {}) {
     options.staffStatusChecker ?? createStaffStatusChecker(),
   );
 
+  // Demo Mode policy, read by requireStaffRole and staff login
+  // (docs/Demo_Mode.md).
+  const demoPolicy: DemoPolicy = options.demoPolicy ?? {
+    enabled: config.DEMO_MODE,
+    staffEmails: new Set(parseDemoStaffEmails(config.DEMO_STAFF_EMAILS)),
+  };
+  app.decorate("demoPolicy", demoPolicy);
+
   // Same for kitchen devices — deactivate/rotate must bite on the next
   // request and the next handshake alike (hard rule 6).
   const kitchenDeviceStatusChecker =
@@ -151,6 +180,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(realtimePlugin, {
     verifyToken: options.verifyToken,
     kitchenDeviceStatus: kitchenDeviceStatusChecker,
+    staffStatus: app.staffStatusChecker,
+    demoPolicy,
   });
 
   const needsPrisma =
@@ -194,6 +225,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const uploadService = createUploadService({ cloudinaryUrl: config.CLOUDINARY_URL });
   const midtransService = createMidtransService({ config });
 
+  if (options.onRoute) app.addHook("onRoute", options.onRoute);
+
   await app.register(registerRoutes, {
     prefix: "/api/v1",
     tableService: createTableService(tableRepository),
@@ -207,7 +240,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
       orders: orderRepository,
       settings: settingsRepository,
     }),
-    staffAuthService: createStaffAuthService({ staff: staffRepository }),
+    staffAuthService: createStaffAuthService({
+      staff: staffRepository,
+      demoPolicy,
+    }),
     kitchenDeviceAuthService: createKitchenDeviceAuthService({
       kitchenDevice: kitchenDeviceRepository,
     }),
@@ -243,7 +279,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
       reports: reportsRepository,
       settings: settingsRepository,
     }),
-    staffAdminService: createStaffAdminService({ repo: staffRepository }),
+    staffAdminService: createStaffAdminService({
+      repo: staffRepository,
+      disconnectStaff: (id) => void app.gateway.disconnectStaff(id),
+    }),
     superadminSettingsService: createSuperadminSettingsService({
       repo: settingsRepository,
     }),

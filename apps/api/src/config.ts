@@ -1,9 +1,89 @@
 import "dotenv/config";
 import { z } from "zod";
+import { isSandboxMidtransUrl, midtransBaseUrls } from "./lib/midtrans-urls.js";
 
 /** Only safe for local dev; production is forced to override it (see below). */
 const CUSTOMER_APP_URL_DEV_DEFAULT = "http://localhost:3000";
 const KDS_APP_URL_DEV_DEFAULT = "http://localhost:3002";
+
+/** Prefix Midtrans sandbox server keys usually carry — a hint, not proof. */
+const MIDTRANS_SANDBOX_SERVER_KEY_PREFIX = "SB-Mid-server-";
+
+/**
+ * Strict boolean env flag. `z.coerce.boolean()` turns the string "false" into
+ * `true` (any non-empty string is truthy), which silently flipped
+ * MIDTRANS_IS_PRODUCTION on for anyone who wrote `false` as the docs say.
+ */
+const envFlag = z
+  .preprocess(
+    (v) => (typeof v === "string" ? v.trim().toLowerCase() : v),
+    z.enum(["true", "false", "1", "0", ""]).default("false"),
+  )
+  .transform((v) => v === "true" || v === "1");
+
+/**
+ * Too high and clients can spoof their IP past the rate limits; too low and
+ * every client shares the proxy's bucket. No default is safe in production,
+ * so it must be stated (Deployment.md).
+ */
+export function checkTrustProxyHops(env: {
+  NODE_ENV: string;
+  TRUST_PROXY_HOPS?: number;
+}): string | null {
+  return env.NODE_ENV === "production" && env.TRUST_PROXY_HOPS === undefined
+    ? "must be set in production to the number of proxies in front of the API (Deployment.md)"
+    : null;
+}
+
+export interface DemoMidtransEnv {
+  DEMO_MODE: boolean;
+  MIDTRANS_IS_PRODUCTION: boolean;
+  MIDTRANS_SERVER_KEY: string;
+}
+
+export interface DemoMidtransCheck {
+  /** Startup is refused. */
+  errors: string[];
+  /** Logged at startup; the API still starts. */
+  warnings: string[];
+}
+
+/**
+ * Demo Mode must never be able to move real money (docs/Demo_Mode.md).
+ *
+ * Refuses startup on what decides where requests go: the production flag and
+ * the base URLs the payment service will call (lib/midtrans-urls.ts). Today the
+ * URLs follow the flag, so the URL check is a backstop for the day they become
+ * configurable. The key prefix is only a hint — key formats are Midtrans'
+ * business — so a non-sandbox-looking key is a warning, not a refusal.
+ *
+ * Empty when Demo Mode is off (no behaviour change outside demo).
+ */
+export function checkDemoMidtrans(env: DemoMidtransEnv): DemoMidtransCheck {
+  const result: DemoMidtransCheck = { errors: [], warnings: [] };
+  if (!env.DEMO_MODE) return result;
+
+  if (env.MIDTRANS_IS_PRODUCTION) {
+    result.errors.push(
+      "DEMO_MODE=true requires MIDTRANS_IS_PRODUCTION=false (sandbox only)",
+    );
+  }
+  const urls = midtransBaseUrls(env.MIDTRANS_IS_PRODUCTION);
+  for (const [name, url] of Object.entries(urls)) {
+    if (!isSandboxMidtransUrl(url)) {
+      result.errors.push(
+        `DEMO_MODE=true requires the Midtrans ${name} API to be the sandbox host (got ${url})`,
+      );
+    }
+  }
+  if (!env.MIDTRANS_SERVER_KEY.startsWith(MIDTRANS_SANDBOX_SERVER_KEY_PREFIX)) {
+    result.warnings.push(
+      `MIDTRANS_SERVER_KEY does not start with ${MIDTRANS_SANDBOX_SERVER_KEY_PREFIX} — ` +
+        "check it is a sandbox key; sandbox requests with a production key will fail",
+    );
+  }
+  return result;
+}
 
 const envSchema = z.object({
   NODE_ENV: z
@@ -35,12 +115,24 @@ const envSchema = z.object({
    *  `<this>/?d=<deviceId>&t=<token>` (Auth_RBAC_Spec §4). Production must set
    *  it: a wrong origin makes every enrolment QR unusable. */
   KDS_APP_URL: z.string().url().default(KDS_APP_URL_DEV_DEFAULT),
+  /** Reverse proxies in front of the API whose X-Forwarded-For entries are
+   *  trusted (Fastify `trustProxy`). 0 = use the socket address, ignore the
+   *  header. Must be set explicitly in production — see Deployment.md. */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).optional(),
 
   // ── External services ──────────────────────────────────────────────────────
   MIDTRANS_SERVER_KEY: z.string().default(""),
   MIDTRANS_CLIENT_KEY: z.string().default(""),
-  MIDTRANS_IS_PRODUCTION: z.coerce.boolean().default(false),
+  MIDTRANS_IS_PRODUCTION: envFlag,
   CLOUDINARY_URL: z.string().default(""),
+
+  // ── Demo Mode (docs/Demo_Mode.md) — all inert unless DEMO_MODE=true ───────
+  DEMO_MODE: envFlag,
+  /** Comma-separated shared demo accounts (<cashier>,<admin>) — lib/demo-policy. */
+  DEMO_STAFF_EMAILS: z.string().default(""),
+  /** Read only by the demo scripts to (re)set the demo account's password. */
+  DEMO_STAFF_PASSWORD: z.string().default(""),
+  DEMO_AI_DAILY_LIMIT: z.coerce.number().int().positive().default(20),
 });
 
 const result = envSchema
@@ -72,11 +164,28 @@ const result = envSchema
       });
     }
 
+    const trustProxyIssue = checkTrustProxyHops(env);
+    if (trustProxyIssue) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["TRUST_PROXY_HOPS"],
+        message: trustProxyIssue,
+      });
+    }
+
     if (env.MIDTRANS_IS_PRODUCTION && !env.MIDTRANS_SERVER_KEY) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["MIDTRANS_SERVER_KEY"],
         message: "must be set when MIDTRANS_IS_PRODUCTION is true",
+      });
+    }
+
+    for (const message of checkDemoMidtrans(env).errors) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["DEMO_MODE"],
+        message,
       });
     }
   })
@@ -91,5 +200,21 @@ if (!result.success) {
   process.exit(1);
 }
 
-export const config = result.data;
+export const config = {
+  ...result.data,
+  TRUST_PROXY_HOPS: result.data.TRUST_PROXY_HOPS ?? 0,
+};
+
+for (const warning of checkDemoMidtrans(config).warnings) {
+  // eslint-disable-next-line no-console
+  console.warn(`[config] Demo Mode: ${warning}`);
+}
+
+/** Lower-cased, trimmed DEMO_STAFF_EMAILS entries. */
+export function parseDemoStaffEmails(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+}
 export type Config = typeof config;

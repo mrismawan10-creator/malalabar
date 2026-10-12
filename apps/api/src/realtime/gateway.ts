@@ -167,6 +167,26 @@ export class RealtimeGateway {
       .emit("session:closed", payload);
   }
 
+  // ── Access revocation ──────────────────────────────────────────────────────
+
+  /**
+   * Drops every open socket of a staff account — called when it is suspended,
+   * so realtime access ends with HTTP access instead of at token expiry. The
+   * handshake check then refuses any reconnect. Returns how many were cut.
+   * Process-local: a multi-replica deploy would need the Redis adapter.
+   */
+  disconnectStaff(staffId: string): number {
+    let count = 0;
+    for (const socket of this.io.sockets.sockets.values()) {
+      const principal = socket.data.principal;
+      if (principal?.type === "staff_access" && principal.staffId === staffId) {
+        socket.disconnect(true);
+        count += 1;
+      }
+    }
+    return count;
+  }
+
   // ── Introspection & lifecycle ──────────────────────────────────────────────
 
   /** Number of sockets currently in a room. Read-only; for health + tests. */

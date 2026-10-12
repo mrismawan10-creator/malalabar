@@ -5,6 +5,13 @@ import type { StaffClaims } from "./tokens.js";
 import type { StaffStatusChecker } from "./staff-status.js";
 import type { KitchenDeviceStatusChecker } from "./kitchen-device-status.js";
 import { checkKitchenDevice } from "./kitchen-device-status.js";
+import type { DemoPolicy } from "./demo-policy.js";
+import {
+  DEMO_FORBIDDEN_MESSAGE,
+  isDemoAccount,
+  isDemoForbidden,
+  isLockedOutDemoAccount,
+} from "./demo-policy.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -12,6 +19,8 @@ declare module "fastify" {
     staffStatusChecker: StaffStatusChecker;
     /** Same idea for kitchen devices — deactivate/rotate must bite at once. */
     kitchenDeviceStatusChecker: KitchenDeviceStatusChecker;
+    /** Demo Mode policy for the shared demo accounts (lib/demo-policy). */
+    demoPolicy: DemoPolicy;
   }
 }
 
@@ -105,6 +114,27 @@ export function requireStaffRole(
           code: "PASSWORD_RESET_REQUIRED",
           message: "Password sementara harus diganti sebelum melanjutkan",
         },
+      });
+      return;
+    }
+
+    // Demo Mode off: a listed demo account is dead, including tokens issued
+    // while it was on. Same response as an invalid token — reveal nothing.
+    if (isLockedOutDemoAccount(request.server.demoPolicy, status.email)) {
+      void reply.status(401).send({
+        error: { code: "UNAUTHORIZED", message: "Invalid or expired token" },
+      });
+      return;
+    }
+
+    // Demo Mode on: the shared demo accounts pass their role check above;
+    // this narrows them further (docs/Demo_Mode.md).
+    if (
+      isDemoAccount(request.server.demoPolicy, status.email) &&
+      isDemoForbidden(request.method, request.routeOptions.url ?? request.url)
+    ) {
+      void reply.status(403).send({
+        error: { code: "DEMO_FORBIDDEN", message: DEMO_FORBIDDEN_MESSAGE },
       });
       return;
     }

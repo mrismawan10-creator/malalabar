@@ -10,7 +10,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "qr:reissue": "tsx src/scripts/reissue-qr-tokens.ts",
-    "set-password": "tsx src/scripts/set-staff-password.ts"
+    "set-password": "tsx src/scripts/set-staff-password.ts",
+    "demo:seed": "tsx src/scripts/demo-seed.ts",
+    "demo:qr": "tsx src/scripts/demo-qr.ts",
+    "demo:reset": "tsx src/scripts/demo-reset.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",

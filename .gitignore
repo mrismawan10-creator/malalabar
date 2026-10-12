@@ -8,3 +8,5 @@ dist/
 *.tsbuildinfo
 .DS_Store
 .vercel
+# Demo Mode QR output (pnpm --filter api demo:qr)
+apps/api/demo-output/

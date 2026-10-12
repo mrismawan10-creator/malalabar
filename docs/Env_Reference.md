@@ -25,13 +25,17 @@ Every environment variable the system needs, grouped by service. Rules: secrets 
 | `KDS_TOKEN_TTL` | `90d` | Long-lived device token |
 | `MIDTRANS_SERVER_KEY` | `Mid-server-…` | Signature + server API. Backend only |
 | `MIDTRANS_CLIENT_KEY` | `Mid-client-…` | Passed to client for Snap |
-| `MIDTRANS_IS_PRODUCTION` | `false` | `true` for live; sandbox first |
+| `MIDTRANS_IS_PRODUCTION` | `false` | `true` for live; sandbox first. Strict flag: `true`/`1` or `false`/`0`/empty (case-insensitive); anything else fails startup |
 | `CLOUDINARY_URL` | `cloudinary://key:secret@cloud` | Signed uploads + CDN |
 | `CORS_ORIGINS` | `https://order.x,https://admin.x,https://kds.x` | Comma-separated allowed origins; no wildcard in prod |
 | `CUSTOMER_APP_URL` | `https://order.x` | Public origin of the customer app. QR codes encode `<this>/order?t=<token>` (PRD 4.1.2). Defaults to `http://localhost:3000` in dev; **startup fails in production if left at the default** — a wrong value ships as unscannable printed cards |
 | `KDS_APP_URL` | `https://kds.x` | Public origin of the kitchen display app. Enrolment QRs encode `<this>/?d=<deviceId>&t=<token>` (Auth_RBAC_Spec §4). Defaults to `http://localhost:3002` in dev; **startup fails in production if left at the default** — a wrong value makes every enrolment QR dead |
 | `SESSION_TIMEOUT_DEFAULT_MINS` | `90` | Fallback if SystemSettings unset |
 | `RECONCILE_PENDING_AFTER_MINS` | `15` | Age before the Midtrans reconciliation sweep checks a PENDING online payment |
+| `DEMO_MODE` | `false` | Public demo switch (docs/Demo_Mode.md). When `true`, startup **fails** unless Midtrans is sandbox (`MIDTRANS_IS_PRODUCTION=false` + `SB-Mid-server-…` key) |
+| `DEMO_STAFF_EMAILS` | `demo@malalabar.id` | Comma-separated shared demo accounts; narrowed by the demo denylist while `DEMO_MODE=true` |
+| `DEMO_STAFF_PASSWORD` | `<12+ chars>` | Read only by `demo:seed` / `demo:reset` to set the demo account's password. Not needed on the API service |
+| `DEMO_AI_DAILY_LIMIT` | `20` | AI Insight calls per demo account per Jakarta day (wired when AI Insight ships) |
 
 The customer/KDS session token TTLs are derived from session timeout settings, not separate vars, except the KDS device long-life value above.
 
@@ -48,18 +52,21 @@ Next.js exposes only `NEXT_PUBLIC_*` vars to the browser. Never expose server ke
 | `NEXT_PUBLIC_WS_URL` | Socket.io URL |
 | `NEXT_PUBLIC_MIDTRANS_CLIENT_KEY` | Snap client key (public by design) |
 | `NEXT_PUBLIC_MIDTRANS_SNAP_URL` | `https://app.sandbox.midtrans.com/snap/snap.js` (sandbox) / prod URL |
+| `NEXT_PUBLIC_DEMO_MODE` | `true` shows the Demo Mode banner; any other value hides it |
 
 ### `apps/admin`
 | Variable | Notes |
 |---|---|
 | `NEXT_PUBLIC_API_BASE_URL` | |
 | `NEXT_PUBLIC_WS_URL` | |
+| `NEXT_PUBLIC_DEMO_MODE` | `true` shows the Demo Mode banner |
 
 ### `apps/kds`
 | Variable | Notes |
 |---|---|
 | `NEXT_PUBLIC_API_BASE_URL` | |
 | `NEXT_PUBLIC_WS_URL` | |
+| `NEXT_PUBLIC_DEMO_MODE` | `true` shows the Demo Mode badge |
 
 No secret keys in any frontend. Cloudinary uploads use a signature minted by the backend, so the frontend never holds the Cloudinary secret.
 

@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { DemoBanner } from "@malalabar/ui";
+import { config } from "@/config";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -25,7 +27,10 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="font-ui bg-surface-page min-h-screen">{children}</body>
+      <body className="font-ui bg-surface-page min-h-screen">
+        {config.demoMode && <DemoBanner />}
+        {children}
+      </body>
     </html>
   );
 }

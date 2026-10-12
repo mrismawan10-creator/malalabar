@@ -117,6 +117,17 @@ Chicken-and-egg: Vercel domains are not known until the first deploy, and
 
 ---
 
+## Public demo
+
+To run a reviewer-facing demo instead of a live restaurant, see
+[`Demo_Mode.md`](Demo_Mode.md) — env vars, seed/QR/reset scripts and the exit
+checklist.
+
+`MIDTRANS_IS_PRODUCTION` is now parsed strictly. Before this fix any non-empty
+value, including `false`, was read as **true** (`z.coerce.boolean`), so a
+deployment that set `false` as instructed below was calling Midtrans
+production endpoints. Check which keys that deployment was using.
+
 ## 3. After the first deploy
 
 1. **Seed**, once, against the production database:

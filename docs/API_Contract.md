@@ -80,6 +80,15 @@ Enforcement: an account with `mustReset=true` is blocked with 403
 is changed; `newPassword` min 8 chars; wrong `currentPassword` → 401
 `INVALID_PASSWORD` (Auth_RBAC_Spec §2.1).
 
+**Demo Mode** (`DEMO_MODE=true`, docs/Demo_Mode.md): an account listed in
+`DEMO_STAFF_EMAILS` passes the normal role check as SUPERADMIN, then gets 403
+`DEMO_FORBIDDEN` ("Fitur ini dinonaktifkan di Mode Demo.") on: every `DELETE`;
+every non-GET under `/superadmin/*`; any method on `/superadmin/staff*`,
+`/superadmin/audit-log`, `/superadmin/kitchen-devices*`; writes to
+`/admin/tables*` (incl. QR regenerate), `/admin/order-acceptance`,
+`/admin/uploads/*`; and `POST /auth/staff/change-password`. Off when
+`DEMO_MODE` is unset — no behaviour change.
+
 ### `POST /sessions`  ← customer entry point (QR scan)
 Public. Validates table token, returns the open session for that table (creating one if none) plus a customer session token.
 ```

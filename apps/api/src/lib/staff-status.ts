@@ -16,6 +16,8 @@ import { getPrisma } from "./prisma.js";
 export interface StaffStatus {
   isSuspended: boolean;
   mustReset: boolean;
+  /** Lets the guard recognise shared demo accounts (lib/demo-policy). */
+  email?: string;
 }
 
 /** Returns null for an unknown staff id — the guard treats it as 401. */
@@ -25,10 +27,14 @@ export function createStaffStatusChecker(): StaffStatusChecker {
   return async (staffId) => {
     const user = await getPrisma().staffUser.findUnique({
       where: { id: staffId },
-      select: { isSuspended: true, mustReset: true },
+      select: { isSuspended: true, mustReset: true, email: true },
     });
     return user
-      ? { isSuspended: user.isSuspended, mustReset: user.mustReset }
+      ? {
+          isSuspended: user.isSuspended,
+          mustReset: user.mustReset,
+          email: user.email,
+        }
       : null;
   };
 }

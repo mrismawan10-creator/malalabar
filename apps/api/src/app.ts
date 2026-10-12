@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
 import type { ApiError } from "@malalabar/types";
-import { config } from "./config.js";
+import { config, parseDemoStaffEmails } from "./config.js";
 import { AppError } from "./lib/errors.js";
 import { disconnectPrisma, getPrisma } from "./lib/prisma.js";
 import { disconnectRedis, getRedis } from "./lib/redis.js";
@@ -58,6 +58,7 @@ import type { StageRepository } from "./repositories/stage.repository.js";
 import { createPrismaStageRepository } from "./repositories/stage.repository.js";
 import type { StaffStatusChecker } from "./lib/staff-status.js";
 import { createStaffStatusChecker } from "./lib/staff-status.js";
+import type { DemoPolicy } from "./lib/demo-policy.js";
 import type { KitchenDeviceStatusChecker } from "./lib/kitchen-device-status.js";
 import { createKitchenDeviceStatusChecker } from "./lib/kitchen-device-status.js";
 import { createKitchenDeviceAdminService } from "./services/kitchen-device-admin.service.js";
@@ -81,6 +82,8 @@ export interface BuildAppOptions {
   staffStatusChecker?: StaffStatusChecker;
   /** Per-request active/tokenVersion check behind every KDS guard. */
   kitchenDeviceStatusChecker?: KitchenDeviceStatusChecker;
+  /** Demo Mode denylist; defaults to DEMO_MODE / DEMO_STAFF_EMAILS. */
+  demoPolicy?: DemoPolicy;
   stageRepository?: StageRepository;
 }
 
@@ -148,6 +151,15 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.decorate(
     "staffStatusChecker",
     options.staffStatusChecker ?? createStaffStatusChecker(),
+  );
+
+  // Demo Mode denylist, also read by requireStaffRole (docs/Demo_Mode.md).
+  app.decorate(
+    "demoPolicy",
+    options.demoPolicy ?? {
+      enabled: config.DEMO_MODE,
+      staffEmails: new Set(parseDemoStaffEmails(config.DEMO_STAFF_EMAILS)),
+    },
   );
 
   // Same for kitchen devices — deactivate/rotate must bite on the next

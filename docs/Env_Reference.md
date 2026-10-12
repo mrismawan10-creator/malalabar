@@ -32,8 +32,8 @@ Every environment variable the system needs, grouped by service. Rules: secrets 
 | `KDS_APP_URL` | `https://kds.x` | Public origin of the kitchen display app. Enrolment QRs encode `<this>/?d=<deviceId>&t=<token>` (Auth_RBAC_Spec §4). Defaults to `http://localhost:3002` in dev; **startup fails in production if left at the default** — a wrong value makes every enrolment QR dead |
 | `SESSION_TIMEOUT_DEFAULT_MINS` | `90` | Fallback if SystemSettings unset |
 | `RECONCILE_PENDING_AFTER_MINS` | `15` | Age before the Midtrans reconciliation sweep checks a PENDING online payment |
-| `DEMO_MODE` | `false` | Public demo switch (docs/Demo_Mode.md). When `true`, startup **fails** unless Midtrans is sandbox (`MIDTRANS_IS_PRODUCTION=false` + `SB-Mid-server-…` key) |
-| `DEMO_STAFF_EMAILS` | `kasir.demo@x,admin.demo@x` | Exactly two emails, in order `<cashier>,<admin>` (`demo:seed` creates them). Narrowed by the demo denylist while `DEMO_MODE=true`; **locked out** (no login, tokens rejected) while it is not. Empty = inert |
+| `DEMO_MODE` | `false` | Public demo switch (docs/Demo_Mode.md). When `true`, startup **fails** if `MIDTRANS_IS_PRODUCTION` is true or the Midtrans base URLs are not sandbox hosts; a server key without the `SB-Mid-server-` prefix only logs a warning |
+| `DEMO_STAFF_EMAILS` | `kasir.demo@x,admin.demo@x` | Exactly two emails, in order `<cashier>,<admin>` (`demo:seed` creates them). Limited to the demo write allowlist while `DEMO_MODE=true`; **locked out** (no login, tokens and sockets rejected) while it is not. Empty = inert |
 | `DEMO_STAFF_PASSWORD` | `<12+ chars>` | Read only by `demo:seed` / `demo:reset` to set the demo account's password. Not needed on the API service |
 | `DEMO_AI_DAILY_LIMIT` | `20` | AI Insight calls per demo account per Jakarta day (wired when AI Insight ships) |
 

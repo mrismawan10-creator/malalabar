@@ -83,15 +83,14 @@ is changed; `newPassword` min 8 chars; wrong `currentPassword` → 401
 **Demo Mode** (docs/Demo_Mode.md). Accounts listed in `DEMO_STAFF_EMAILS`
 (the shared demo CASHIER and ADMIN) keep their normal role checks, plus:
 - `DEMO_MODE=true` → 403 `DEMO_FORBIDDEN` ("Fitur ini dinonaktifkan di Mode
-  Demo.") on every `DELETE`; every non-GET under `/superadmin/*`; any method on
-  `/superadmin/staff*`, `/superadmin/audit-log`, `/superadmin/kitchen-devices*`;
-  writes to `/admin/menu*`, `/admin/categories*`, `/admin/customization-groups*`,
-  `/admin/customization-options*`, `/admin/promos*`, `/admin/tables*` (incl. QR
-  regenerate), `/admin/order-acceptance`, `/admin/uploads/*`; and
-  `POST /auth/staff/change-password`.
+  Demo.") on **every non-GET request except** `POST
+  /cashier/orders/:orderId/{approve,reject,serve}` and `POST
+  /cashier/payments/:paymentId/confirm` (allowlist, `DEMO_ALLOWED_WRITES`), and
+  on reads of `/superadmin/staff*`, `/superadmin/audit-log`,
+  `/superadmin/kitchen-devices*`.
 - `DEMO_MODE` not `true` → login answers 401 `INVALID_CREDENTIALS` (identical
-  to a wrong password) and any staff token for the account gets 401
-  `UNAUTHORIZED`.
+  to a wrong password), any staff token for the account gets 401
+  `UNAUTHORIZED`, and its socket handshake is refused.
 With `DEMO_STAFF_EMAILS` empty, neither applies — no behaviour change.
 
 ### `POST /sessions`  ← customer entry point (QR scan)

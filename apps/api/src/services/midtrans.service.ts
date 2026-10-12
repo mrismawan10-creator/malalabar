@@ -1,6 +1,7 @@
 import { AppError } from "../lib/errors.js";
 import type { Config } from "../config.js";
 import type { MidtransTransactionStatus } from "../lib/payment-outcome.js";
+import { midtransBaseUrls } from "../lib/midtrans-urls.js";
 
 export interface MidtransTransactionStatusResponse {
   order_id: string;
@@ -27,14 +28,10 @@ export interface MidtransService {
 export function createMidtransService(deps: {
   config: Config;
 }): MidtransService {
-  // Snap API endpoint — sandbox or production based on env
-  const snapBaseUrl = deps.config.MIDTRANS_IS_PRODUCTION
-    ? "https://app.midtrans.com/snap/v1"
-    : "https://app.sandbox.midtrans.com/snap/v1";
-
-  const coreBaseUrl = deps.config.MIDTRANS_IS_PRODUCTION
-    ? "https://api.midtrans.com/v2"
-    : "https://api.sandbox.midtrans.com/v2";
+  // Sandbox or production based on env (lib/midtrans-urls.ts)
+  const { snap: snapBaseUrl, core: coreBaseUrl } = midtransBaseUrls(
+    deps.config.MIDTRANS_IS_PRODUCTION,
+  );
 
   const authHeader = () =>
     `Basic ${Buffer.from(`${deps.config.MIDTRANS_SERVER_KEY}:`).toString("base64")}`;

@@ -10,7 +10,7 @@ and `config-demo.test.ts`).
 
 | Flag | Where | Effect |
 |---|---|---|
-| `DEMO_MODE=true` | API | Sandbox-only Midtrans enforced at startup; demo accounts narrowed by a denylist; demo scripts allowed to run |
+| `DEMO_MODE=true` | API | Sandbox-only Midtrans enforced at startup; demo accounts limited to an allowlist of writes; demo scripts allowed to run |
 | `NEXT_PUBLIC_DEMO_MODE=true` | customer, admin, KDS | Shows *"Mode Demo — data contoh, pembayaran sandbox (tidak ada uang sungguhan)."* |
 
 > **⚠️ VERIFIKASI** markers below flag steps that depend on a third-party
@@ -22,18 +22,30 @@ and `config-demo.test.ts`).
 ## 1. What Demo Mode does
 
 ### Sandbox-only payments
-With `DEMO_MODE=true` the API refuses to start unless
-`MIDTRANS_IS_PRODUCTION=false` **and** `MIDTRANS_SERVER_KEY` starts with
-`SB-Mid-server-`. The log says which check failed:
+With `DEMO_MODE=true` the API **refuses to start** if
+`MIDTRANS_IS_PRODUCTION` is true, or if the Snap / Core base URLs the payment
+service would call (`apps/api/src/lib/midtrans-urls.ts`) are not
+`*.sandbox.midtrans.com`:
 
 ```
 [config] Missing or invalid environment variables:
-  DEMO_MODE: DEMO_MODE=true requires a Midtrans sandbox server key (SB-Mid-server-…)
+  DEMO_MODE: DEMO_MODE=true requires MIDTRANS_IS_PRODUCTION=false (sandbox only)
+  DEMO_MODE: DEMO_MODE=true requires the Midtrans snap API to be the sandbox host (got https://app.midtrans.com/snap/v1)
 ```
 
-> **⚠️ VERIFIKASI:** the check relies on Midtrans sandbox server keys starting
-> with `SB-Mid-server-` and production keys not. Confirm against your own
-> sandbox and production keys in the Midtrans dashboard.
+Today the URLs follow the flag, so both checks trip together; the URL check is
+there for the day the URLs become configurable.
+
+A server key that does not start with `SB-Mid-server-` (or is empty) only
+**logs a warning** — the API still starts:
+
+```
+[config] Demo Mode: MIDTRANS_SERVER_KEY does not start with SB-Mid-server- — check it is a sandbox key; …
+```
+
+> **⚠️ VERIFIKASI:** that your sandbox server key does start with
+> `SB-Mid-server-` (so the warning stays quiet), in the Midtrans sandbox
+> dashboard.
 
 ### Two shared staff accounts — no SUPERADMIN
 `DEMO_STAFF_EMAILS` lists exactly two emails, **in order `<cashier>,<admin>`**.
@@ -53,38 +65,46 @@ The admin nav shows the same links to every role (unchanged behaviour), so the
 cashier opening *Menu* or the admin opening *Kasir* gets a plain permission
 error. Tell reviewers which login is for which screen.
 
-### What demo accounts cannot do (`DEMO_MODE=true`)
-On top of their normal role, `apps/api/src/lib/demo-policy.ts` returns 403
-`DEMO_FORBIDDEN` / "Fitur ini dinonaktifkan di Mode Demo." for:
+### What demo accounts may do (`DEMO_MODE=true`)
+On top of their normal role, `apps/api/src/lib/demo-policy.ts` applies:
 
-| Denied | Why |
-|---|---|
-| Every `DELETE` | Nothing a visitor does should be destructive |
-| Any write to menu items, availability, images, categories, customizations, promos | Menu is read-only; one visitor cannot rewrite it for the next |
-| Table create/edit, QR regenerate | The public DEMO QR must keep working |
-| Pausing orders (`/admin/order-acceptance`) | Would stop every visitor |
-| Image uploads | No public Cloudinary uploads |
-| Change password | Would lock out the next reviewer |
-| Every write under `/superadmin/*`; staff list, audit log, kitchen devices | Defence in depth — their roles cannot reach these anyway |
+- **Writes — allowlist (fails closed).** The only non-GET requests a demo
+  account may make are listed in `DEMO_ALLOWED_WRITES`:
+  `POST /cashier/orders/:orderId/approve`, `…/reject`, `…/serve` and
+  `POST /cashier/payments/:paymentId/confirm`. Every other write — menu,
+  categories, customizations, promos, tables and QR regenerate, pausing
+  orders, uploads, change-password, all of `/superadmin`, every `DELETE`, and
+  **any route added later** — gets 403 `DEMO_FORBIDDEN` / "Fitur ini
+  dinonaktifkan di Mode Demo.".
+- **Reads — denylist.** Everything the role can read, except the staff list,
+  audit log and kitchen devices (the roles cannot reach those anyway).
 
-The only writes left to demo accounts are the cashier's: approve, reject,
-serve, confirm payment.
+`apps/api/src/__tests__/demo-contract.test.ts` holds `DEMO_CONTRACT`: every
+route a reviewer must be able to use, with its role. The test proves each one
+gets past RBAC and the demo policy, that every allowlisted write is in the
+contract and exists, and that every other registered write is refused. **To
+make a new feature usable in the demo, add it to both `DEMO_ALLOWED_WRITES`
+(if it writes) and `DEMO_CONTRACT`** — AI Insight (`POST
+/admin/analytics/insight`) is marked as a TODO in both.
 
 ### Automatic lockout when Demo Mode is off
 If `DEMO_MODE` is anything but `true`, every email in `DEMO_STAFF_EMAILS`:
 - cannot log in — the response is identical to a wrong password
   (`INVALID_CREDENTIALS`);
 - cannot use a token issued earlier — the next request gets the same 401 as an
-  invalid token. (Staff tokens live 8 hours and there is no refresh token, so
-  this is what cuts existing sessions.)
+  invalid token. (Staff tokens live 8 hours and there is no refresh token —
+  `Auth_RBAC_Spec.md` §8.1 — so this is what cuts existing sessions.)
+- cannot open a realtime socket — the handshake is refused. Changing the flag
+  means restarting the API, which drops every socket, so no old socket
+  survives the switch.
 
 So flipping the flag off retires the shared credentials, **as long as the
 emails stay listed in `DEMO_STAFF_EMAILS`**. Remove an email from the list and
 that account is an ordinary staff account again — suspend it first (§6).
 
-Known gap: the staff socket handshake does not re-check account status (true
-for suspended accounts too, pre-existing). A locked-out demo tab can keep
-*receiving* realtime events until its token expires; it cannot act.
+Every staff socket handshake re-checks the account (unknown, suspended or
+locked out → refused), and suspending an account disconnects its open sockets
+— the same rules as HTTP.
 
 ### Public DEMO table
 Table `DEMO` (area `Demo`) with a normally signed QR token. Its sessions
@@ -97,8 +117,8 @@ AI Insight does not exist yet. The daily cap is ready in
 Jakarta midnight, fails closed, friendly `DEMO_AI_LIMIT_MESSAGE`). When AI
 Insight ships: check its cache first; only on a miss, for a demo account
 (`isDemoAccount`), call `consumeDailyQuota(getRedis(), "ai-insight:<staffId>",
-config.DEMO_AI_DAILY_LIMIT)`. If it is a non-GET route, it must also be
-allowed for demo accounts (see §7).
+config.DEMO_AI_DAILY_LIMIT)`. Add the route to `DEMO_ALLOWED_WRITES` and
+`DEMO_CONTRACT` (both carry a TODO for it).
 
 ---
 
@@ -118,7 +138,7 @@ On top of the normal variables in `Deployment.md`:
 | `DEMO_STAFF_EMAILS` | `<cashier>,<admin>`, e.g. `kasir.demo@malalabar.id,admin.demo@malalabar.id` |
 | `DEMO_AI_DAILY_LIMIT` | `20` (default) |
 | `MIDTRANS_IS_PRODUCTION` | `false` |
-| `MIDTRANS_SERVER_KEY` | sandbox key, `SB-Mid-server-…` |
+| `MIDTRANS_SERVER_KEY` | sandbox key, `SB-Mid-server-…` (other prefixes only warn) |
 | `MIDTRANS_CLIENT_KEY` | sandbox key, `SB-Mid-client-…` |
 
 `DEMO_STAFF_PASSWORD` is **not** needed by the API — only wherever the demo
@@ -268,23 +288,15 @@ Options, simplest first:
 
 ---
 
-## 7. Next step (proposal, not implemented): allowlist for demo writes
+## 7. Allowlist trade-offs (implemented)
 
-Today demo accounts run on a **denylist**: everything their role allows,
-minus the listed routes. After the menu lockdown the only writes left are four
-cashier actions, so the denylist is close to an allowlist already.
+Writes use an allowlist, reads a denylist (§1).
 
-**Proposal:** for demo accounts, allow non-GET requests only on an explicit
-list of `(method, route pattern)` pairs — today
-`POST /cashier/orders/:orderId/{approve,reject,serve}` and
-`POST /cashier/payments/:paymentId/confirm`. Keep the current denylist for
-reads (GET/HEAD).
-
-| | Allowlist for writes |
+| | |
 |---|---|
-| **For** | Fails closed: a write endpoint added later is blocked for demo accounts until someone decides otherwise — this removes the main weakness of a denylist (forgetting to list a new route). The list is short and easy to audit. |
-| **Against** | Every new write a reviewer *should* try (e.g. an AI Insight `POST`) must be added, or it silently returns 403 in the demo only. Each entry needs a test. Renaming a route breaks the demo (fails closed, not open). |
-| **Why not reads too** | The read list would be long, reads carry low risk, and maintaining it would be costly. Caveat: a GET with side effects would still pass — there is none today; keep it that way in review. |
+| **Gained** | Fails closed: a write endpoint added later is blocked for demo accounts until someone decides otherwise. The list is four entries and easy to audit. |
+| **Cost** | A new write that reviewers *should* try must be added to `DEMO_ALLOWED_WRITES` and `DEMO_CONTRACT`, or it returns 403 in the demo only — the contract test makes the omission visible as soon as the route is added to the contract. Renaming a route breaks the demo (fails closed, not open). |
+| **Why reads stay a denylist** | The readable surface is large and low-risk. Caveat: a GET with side effects would pass — there is none today; keep it that way in review. |
 
 ---
 
@@ -294,6 +306,7 @@ reads (GET/HEAD).
   error for the other role.
 - Visitors share two accounts and one DEMO table: concurrent reviewers see
   each other's orders (same as two phones at one real table).
-- The denylist is pattern-based: a new non-superadmin **write** route that
-  should be off-limits must be added to `FORBIDDEN_WRITES` in
-  `demo-policy.ts` (or adopt §7).
+- Reads use a denylist: a new GET that should be hidden from demo accounts
+  must be added to `FORBIDDEN_READS` in `demo-policy.ts`.
+- Socket disconnect on suspend reaches only the API process that handled the
+  request — fine with one instance (`Auth_RBAC_Spec.md` §8.3).

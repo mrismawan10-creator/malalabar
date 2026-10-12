@@ -19,7 +19,7 @@ declare module "fastify" {
     staffStatusChecker: StaffStatusChecker;
     /** Same idea for kitchen devices — deactivate/rotate must bite at once. */
     kitchenDeviceStatusChecker: KitchenDeviceStatusChecker;
-    /** Demo Mode denylist for the shared demo account (inert when off). */
+    /** Demo Mode policy for the shared demo accounts (lib/demo-policy). */
     demoPolicy: DemoPolicy;
   }
 }

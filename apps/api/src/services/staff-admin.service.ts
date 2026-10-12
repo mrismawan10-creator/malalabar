@@ -56,6 +56,8 @@ export function generateTempPassword(): string {
 
 export function createStaffAdminService(deps: {
   repo: StaffRepository;
+  /** Cuts the account's open sockets on suspend (realtime gateway). */
+  disconnectStaff?: (staffId: string) => void;
 }): StaffAdminService {
   const { repo } = deps;
 
@@ -163,6 +165,9 @@ export function createStaffAdminService(deps: {
         metadata: { isSuspended },
         ipAddress: actor.ipAddress,
       });
+
+      // Same for realtime: drop live sockets; the handshake refuses reconnects.
+      if (isSuspended) deps.disconnectStaff?.(id);
 
       return staff;
     },

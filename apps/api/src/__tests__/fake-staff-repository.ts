@@ -15,6 +15,11 @@ export interface FakeAuditRow {
 /**
  * In-memory staff store covering login + superadmin management. Exposes the
  * audit list and a `staff()` accessor so tests can assert on both.
+ *
+ * The seeded password hashes are opaque fixtures that match no known password
+ * (an earlier comment claimed "password123"; it does not). A test that needs
+ * to log in sets its own hash through `staff()`, e.g.
+ * `user.passwordHash = hashSync("password123", 4)` — see demo-policy.test.ts.
  */
 export function createFakeStaffRepository(): StaffRepository & {
   staff(): StaffUserRow[];
@@ -26,7 +31,7 @@ export function createFakeStaffRepository(): StaffRepository & {
       name: "Budi Kasir",
       email: "budi@malalabar.com",
       passwordHash:
-        "$2a$10$x/2Pp8rLbJJqpN8KsK3FZeE5c2zqJQQVqrQzlVQo7DduK5VKJHkti", // "password123"
+        "$2a$10$x/2Pp8rLbJJqpN8KsK3FZeE5c2zqJQQVqrQzlVQo7DduK5VKJHkti", // opaque — see note above
       role: "CASHIER",
       isSuspended: false,
       mustReset: false,
@@ -37,7 +42,7 @@ export function createFakeStaffRepository(): StaffRepository & {
       name: "Owner Satu",
       email: "owner@malalabar.com",
       passwordHash:
-        "$2a$10$x/2Pp8rLbJJqpN8KsK3FZeE5c2zqJQQVqrQzlVQo7DduK5VKJHkti", // "password123"
+        "$2a$10$x/2Pp8rLbJJqpN8KsK3FZeE5c2zqJQQVqrQzlVQo7DduK5VKJHkti", // opaque — see note above
       role: "SUPERADMIN",
       isSuspended: false,
       mustReset: false,

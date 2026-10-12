@@ -37,9 +37,10 @@ runtime, so the API needs a host that runs a long-lived container. That is why
 
 ## 1. API on Railway
 
-Railway reads `railway.json` at the repo root, which points at
-`apps/api/Dockerfile`. The build context is the repo root so pnpm workspace
-links resolve.
+Railway builds the `Dockerfile` at the **repo root**, which it picks up
+automatically — there is no `railway.json` (it was removed in `5403d28`; Railway
+had been ignoring it). The Dockerfile lives at the root because the build
+context must be the root for pnpm workspace links to resolve.
 
 1. New project → **Deploy from GitHub repo** → this repo, branch `main`.
 2. Add a **Redis** service in the same project (or use an Upstash URL).

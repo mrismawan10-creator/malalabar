@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import type { onRouteHookHandler } from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
 import type { ApiError } from "@malalabar/types";
@@ -82,8 +83,12 @@ export interface BuildAppOptions {
   staffStatusChecker?: StaffStatusChecker;
   /** Per-request active/tokenVersion check behind every KDS guard. */
   kitchenDeviceStatusChecker?: KitchenDeviceStatusChecker;
-  /** Demo Mode denylist; defaults to DEMO_MODE / DEMO_STAFF_EMAILS. */
+  /** Demo Mode policy; defaults to DEMO_MODE / DEMO_STAFF_EMAILS. */
   demoPolicy?: DemoPolicy;
+  /** Tests only: sees (and may extend) every route as it is registered — the
+   *  demo contract test appends a terminal preHandler to prove the guards
+   *  let a request through without touching the database. */
+  onRoute?: onRouteHookHandler;
   stageRepository?: StageRepository;
 }
 
@@ -171,6 +176,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(realtimePlugin, {
     verifyToken: options.verifyToken,
     kitchenDeviceStatus: kitchenDeviceStatusChecker,
+    staffStatus: app.staffStatusChecker,
+    demoPolicy,
   });
 
   const needsPrisma =
@@ -213,6 +220,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   const uploadService = createUploadService({ cloudinaryUrl: config.CLOUDINARY_URL });
   const midtransService = createMidtransService({ config });
+
+  if (options.onRoute) app.addHook("onRoute", options.onRoute);
 
   await app.register(registerRoutes, {
     prefix: "/api/v1",
@@ -266,7 +275,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
       reports: reportsRepository,
       settings: settingsRepository,
     }),
-    staffAdminService: createStaffAdminService({ repo: staffRepository }),
+    staffAdminService: createStaffAdminService({
+      repo: staffRepository,
+      disconnectStaff: (id) => void app.gateway.disconnectStaff(id),
+    }),
     superadminSettingsService: createSuperadminSettingsService({
       repo: settingsRepository,
     }),

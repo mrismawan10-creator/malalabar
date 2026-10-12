@@ -8,6 +8,9 @@ import {
 import type { KitchenDeviceStatusChecker } from "../lib/kitchen-device-status.js";
 import { checkKitchenDevice } from "../lib/kitchen-device-status.js";
 import type { KdsClaims } from "../lib/tokens.js";
+import type { StaffStatusChecker } from "../lib/staff-status.js";
+import type { DemoPolicy } from "../lib/demo-policy.js";
+import { isLockedOutDemoAccount } from "../lib/demo-policy.js";
 import type { SocketPrincipal } from "./principal.js";
 
 /**
@@ -40,11 +43,23 @@ function isStaffRole(value: string): value is StaffRole {
  * `deviceStatus`, when supplied, re-checks the kitchen device row on every
  * handshake — otherwise a deactivated tablet could keep its socket open (and
  * reconnect) until its 90-day token expired, while HTTP already refused it.
+ *
+ * `staffStatus` does the same for staff, with the checker the HTTP guard uses
+ * (lib/staff-status.ts): unknown, suspended and locked-out demo accounts
+ * (`demoPolicy`) are refused. Sockets already open when an account is
+ * suspended are cut by `RealtimeGateway.disconnectStaff`.
  */
+export interface SocketVerifierDeps {
+  deviceStatus?: KitchenDeviceStatusChecker;
+  staffStatus?: StaffStatusChecker;
+  demoPolicy?: DemoPolicy;
+}
+
 export function createSocketTokenVerifier(
   nodeEnv: string,
-  deviceStatus?: KitchenDeviceStatusChecker,
+  deps: SocketVerifierDeps = {},
 ): SocketTokenVerifier {
+  const { deviceStatus, staffStatus, demoPolicy } = deps;
   const stub = createStubTokenVerifier(nodeEnv);
 
   return async (token: string): Promise<SocketPrincipal | null> => {
@@ -59,15 +74,31 @@ export function createSocketTokenVerifier(
       // Not a customer token — try staff
     }
 
+    let staffClaims: ReturnType<typeof verifyStaffToken> | null = null;
     try {
-      const claims = verifyStaffToken(token);
-      return {
-        type: "staff_access",
-        staffId: claims.sub,
-        role: claims.role,
-      };
+      staffClaims = verifyStaffToken(token);
     } catch {
       // Not a staff token — try KDS
+    }
+
+    // Outside the try, like the KDS branch: a refused account must reject the
+    // handshake, not fall through to the other token kinds.
+    if (staffClaims) {
+      if (staffStatus) {
+        const status = await staffStatus(staffClaims.sub);
+        if (
+          status === null ||
+          status.isSuspended ||
+          isLockedOutDemoAccount(demoPolicy, status.email)
+        ) {
+          return null;
+        }
+      }
+      return {
+        type: "staff_access",
+        staffId: staffClaims.sub,
+        role: staffClaims.role,
+      };
     }
 
     let kdsClaims: KdsClaims | null = null;

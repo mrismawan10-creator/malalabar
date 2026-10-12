@@ -3,6 +3,8 @@ import fp from "fastify-plugin";
 import { config } from "../config.js";
 import { RealtimeGateway } from "./gateway.js";
 import type { KitchenDeviceStatusChecker } from "../lib/kitchen-device-status.js";
+import type { StaffStatusChecker } from "../lib/staff-status.js";
+import type { DemoPolicy } from "../lib/demo-policy.js";
 import { createSocketTokenVerifier } from "./verify-token.js";
 import type { SocketTokenVerifier } from "./verify-token.js";
 
@@ -21,6 +23,10 @@ interface RealtimeOptions {
   verifyToken?: SocketTokenVerifier;
   /** Re-checks the kitchen device row on every KDS handshake (hard rule 6). */
   kitchenDeviceStatus?: KitchenDeviceStatusChecker;
+  /** Re-checks suspend status on every staff handshake (Auth_RBAC_Spec §2.5). */
+  staffStatus?: StaffStatusChecker;
+  /** Refuses locked-out demo accounts, as the HTTP guard does. */
+  demoPolicy?: DemoPolicy;
 }
 
 const realtime: FastifyPluginAsync<RealtimeOptions> = async (app, opts) => {
@@ -30,7 +36,11 @@ const realtime: FastifyPluginAsync<RealtimeOptions> = async (app, opts) => {
     // T3.1 / T3.2 — see verify-token.ts.
     verifyToken:
       opts.verifyToken ??
-      createSocketTokenVerifier(config.NODE_ENV, opts.kitchenDeviceStatus),
+      createSocketTokenVerifier(config.NODE_ENV, {
+        deviceStatus: opts.kitchenDeviceStatus,
+        staffStatus: opts.staffStatus,
+        demoPolicy: opts.demoPolicy,
+      }),
     onError: (err) => app.log.error(err),
   });
 

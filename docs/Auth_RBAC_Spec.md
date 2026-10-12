@@ -141,3 +141,45 @@ SUPERADMIN passes every staff check (superset of ADMIN + CASHIER). Implement thi
 ## 7. Secrets (names only — values in Env_Reference)
 
 `JWT_SECRET`, `JWT_REFRESH_SECRET` (or a separate signing key), session token TTL settings. These are environment variables, never in code or repo. Rotating `JWT_SECRET` invalidates all live access tokens (acceptable; staff re-login).
+
+---
+
+## 8. Known gaps (implementation vs this spec)
+
+Recorded so they are decided deliberately, not discovered later.
+
+### 8.1 One 8-hour token, no refresh — decision deferred until before production
+**Spec (§1, §2.3–2.4):** staff access JWT of 15 minutes plus a 7-day rotating,
+server-side refresh token with reuse detection.
+
+**Implementation today:** `POST /auth/staff/login` (`apps/api/src/services/staff-auth.service.ts`)
+issues **one access JWT valid for 8 hours**. There is no refresh endpoint, no
+refresh-token storage, no rotation and no reuse detection; logout is
+client-side only (the token is dropped, not revoked). `ACCESS_TOKEN_TTL` and
+`REFRESH_TOKEN_TTL` exist in config but are not used by the login path.
+
+**What limits the exposure today:**
+- every staff HTTP request re-reads the account (suspended → 403, unknown → 401,
+  `mustReset` gate) — `lib/staff-status.ts`, `lib/guards.ts`;
+- every staff socket handshake re-reads the account too, and suspending an
+  account disconnects its open sockets (`RealtimeGateway.disconnectStaff`);
+- Demo Mode accounts are locked out (login, HTTP, socket) whenever
+  `DEMO_MODE` is off (`lib/demo-policy.ts`).
+
+So a token cannot outlive a suspension. What the gap does cost: a stolen token
+stays usable for up to 8 hours if the account is *not* suspended, and there is
+no server-side "log out everywhere" short of suspending.
+
+**Decision:** deferred — to be made before the system handles a real
+restaurant. TTLs are intentionally left unchanged until then.
+
+### 8.2 `mustReset` is not checked on the socket handshake
+HTTP blocks a `mustReset` account outside `/auth/` (§2.1). The socket handshake
+checks only existence, suspension and the demo lockout, so such an account can
+receive realtime events for its role (it cannot act on them). Low risk; noted
+for the same pre-production review.
+
+### 8.3 Socket disconnect on suspend is process-local
+`disconnectStaff` acts on the API process that handled the suspend request.
+With one API instance (today) that is every socket. Running several replicas
+would need the Socket.io Redis adapter for this to reach all of them.

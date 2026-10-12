@@ -1,11 +1,12 @@
 import "dotenv/config";
 import { z } from "zod";
+import { isSandboxMidtransUrl, midtransBaseUrls } from "./lib/midtrans-urls.js";
 
 /** Only safe for local dev; production is forced to override it (see below). */
 const CUSTOMER_APP_URL_DEV_DEFAULT = "http://localhost:3000";
 const KDS_APP_URL_DEV_DEFAULT = "http://localhost:3002";
 
-/** Prefix Midtrans gives every sandbox server key (production keys lack it). */
+/** Prefix Midtrans sandbox server keys usually carry — a hint, not proof. */
 const MIDTRANS_SANDBOX_SERVER_KEY_PREFIX = "SB-Mid-server-";
 
 /**
@@ -26,25 +27,48 @@ export interface DemoMidtransEnv {
   MIDTRANS_SERVER_KEY: string;
 }
 
+export interface DemoMidtransCheck {
+  /** Startup is refused. */
+  errors: string[];
+  /** Logged at startup; the API still starts. */
+  warnings: string[];
+}
+
 /**
- * Demo Mode must never be able to move real money (docs/Demo_Mode.md). Returns
- * the reasons the Midtrans config is not sandbox; empty when it is safe or when
- * Demo Mode is off (no behaviour change outside demo).
+ * Demo Mode must never be able to move real money (docs/Demo_Mode.md).
+ *
+ * Refuses startup on what decides where requests go: the production flag and
+ * the base URLs the payment service will call (lib/midtrans-urls.ts). Today the
+ * URLs follow the flag, so the URL check is a backstop for the day they become
+ * configurable. The key prefix is only a hint — key formats are Midtrans'
+ * business — so a non-sandbox-looking key is a warning, not a refusal.
+ *
+ * Empty when Demo Mode is off (no behaviour change outside demo).
  */
-export function checkDemoMidtrans(env: DemoMidtransEnv): string[] {
-  if (!env.DEMO_MODE) return [];
-  const problems: string[] = [];
+export function checkDemoMidtrans(env: DemoMidtransEnv): DemoMidtransCheck {
+  const result: DemoMidtransCheck = { errors: [], warnings: [] };
+  if (!env.DEMO_MODE) return result;
+
   if (env.MIDTRANS_IS_PRODUCTION) {
-    problems.push(
+    result.errors.push(
       "DEMO_MODE=true requires MIDTRANS_IS_PRODUCTION=false (sandbox only)",
     );
   }
+  const urls = midtransBaseUrls(env.MIDTRANS_IS_PRODUCTION);
+  for (const [name, url] of Object.entries(urls)) {
+    if (!isSandboxMidtransUrl(url)) {
+      result.errors.push(
+        `DEMO_MODE=true requires the Midtrans ${name} API to be the sandbox host (got ${url})`,
+      );
+    }
+  }
   if (!env.MIDTRANS_SERVER_KEY.startsWith(MIDTRANS_SANDBOX_SERVER_KEY_PREFIX)) {
-    problems.push(
-      `DEMO_MODE=true requires a Midtrans sandbox server key (${MIDTRANS_SANDBOX_SERVER_KEY_PREFIX}…)`,
+    result.warnings.push(
+      `MIDTRANS_SERVER_KEY does not start with ${MIDTRANS_SANDBOX_SERVER_KEY_PREFIX} — ` +
+        "check it is a sandbox key; sandbox requests with a production key will fail",
     );
   }
-  return problems;
+  return result;
 }
 
 const envSchema = z.object({
@@ -86,7 +110,7 @@ const envSchema = z.object({
 
   // ── Demo Mode (docs/Demo_Mode.md) — all inert unless DEMO_MODE=true ───────
   DEMO_MODE: envFlag,
-  /** Comma-separated staff emails that get the demo denylist (lib/demo-policy). */
+  /** Comma-separated shared demo accounts (<cashier>,<admin>) — lib/demo-policy. */
   DEMO_STAFF_EMAILS: z.string().default(""),
   /** Read only by the demo scripts to (re)set the demo account's password. */
   DEMO_STAFF_PASSWORD: z.string().default(""),
@@ -130,7 +154,7 @@ const result = envSchema
       });
     }
 
-    for (const message of checkDemoMidtrans(env)) {
+    for (const message of checkDemoMidtrans(env).errors) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["DEMO_MODE"],
@@ -150,6 +174,11 @@ if (!result.success) {
 }
 
 export const config = result.data;
+
+for (const warning of checkDemoMidtrans(config).warnings) {
+  // eslint-disable-next-line no-console
+  console.warn(`[config] Demo Mode: ${warning}`);
+}
 
 /** Lower-cased, trimmed DEMO_STAFF_EMAILS entries. */
 export function parseDemoStaffEmails(raw: string): string[] {

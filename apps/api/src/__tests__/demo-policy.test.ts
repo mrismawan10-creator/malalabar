@@ -79,7 +79,6 @@ describe("isDemoForbidden", () => {
     ["GET", "/api/v1/admin/reports/:type"],
     ["GET", "/api/v1/superadmin/settings"],
     ["GET", "/api/v1/superadmin/stages"],
-    ["POST", "/api/v1/auth/staff/logout"],
   ])("allows %s %s", (method, url) => {
     expect(isDemoForbidden(method, url)).toBe(false);
   });

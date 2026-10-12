@@ -183,3 +183,12 @@ for the same pre-production review.
 `disconnectStaff` acts on the API process that handled the suspend request.
 With one API instance (today) that is every socket. Running several replicas
 would need the Socket.io Redis adapter for this to reach all of them.
+
+### 8.4 Rate-limit counters live in memory
+Rate limits (API_Contract §1.2) count in the API process's memory, not Redis:
+no Redis commands spent (the planned Upstash free tier has a monthly command
+quota) and no fail-open when Redis is unreachable or out of quota. This is
+correct only for **one** API instance. With several replicas each would count
+separately, multiplying every limit by the replica count; that needs a shared
+store again (Redis via the plugin's `redis` option, sized against the Redis
+plan's command quota). Counters also reset on every restart or deploy.

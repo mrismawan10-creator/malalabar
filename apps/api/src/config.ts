@@ -21,6 +21,20 @@ const envFlag = z
   )
   .transform((v) => v === "true" || v === "1");
 
+/**
+ * Too high and clients can spoof their IP past the rate limits; too low and
+ * every client shares the proxy's bucket. No default is safe in production,
+ * so it must be stated (Deployment.md).
+ */
+export function checkTrustProxyHops(env: {
+  NODE_ENV: string;
+  TRUST_PROXY_HOPS?: number;
+}): string | null {
+  return env.NODE_ENV === "production" && env.TRUST_PROXY_HOPS === undefined
+    ? "must be set in production to the number of proxies in front of the API (Deployment.md)"
+    : null;
+}
+
 export interface DemoMidtransEnv {
   DEMO_MODE: boolean;
   MIDTRANS_IS_PRODUCTION: boolean;
@@ -101,6 +115,10 @@ const envSchema = z.object({
    *  `<this>/?d=<deviceId>&t=<token>` (Auth_RBAC_Spec §4). Production must set
    *  it: a wrong origin makes every enrolment QR unusable. */
   KDS_APP_URL: z.string().url().default(KDS_APP_URL_DEV_DEFAULT),
+  /** Reverse proxies in front of the API whose X-Forwarded-For entries are
+   *  trusted (Fastify `trustProxy`). 0 = use the socket address, ignore the
+   *  header. Must be set explicitly in production — see Deployment.md. */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).optional(),
 
   // ── External services ──────────────────────────────────────────────────────
   MIDTRANS_SERVER_KEY: z.string().default(""),
@@ -146,6 +164,15 @@ const result = envSchema
       });
     }
 
+    const trustProxyIssue = checkTrustProxyHops(env);
+    if (trustProxyIssue) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["TRUST_PROXY_HOPS"],
+        message: trustProxyIssue,
+      });
+    }
+
     if (env.MIDTRANS_IS_PRODUCTION && !env.MIDTRANS_SERVER_KEY) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -173,7 +200,10 @@ if (!result.success) {
   process.exit(1);
 }
 
-export const config = result.data;
+export const config = {
+  ...result.data,
+  TRUST_PROXY_HOPS: result.data.TRUST_PROXY_HOPS ?? 0,
+};
 
 for (const warning of checkDemoMidtrans(config).warnings) {
   // eslint-disable-next-line no-console

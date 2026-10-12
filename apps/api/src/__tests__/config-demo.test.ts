@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { checkDemoMidtrans, config, parseDemoStaffEmails } from "../config.js";
+import {
+  checkDemoMidtrans,
+  checkTrustProxyHops,
+  config,
+  parseDemoStaffEmails,
+} from "../config.js";
 import { isSandboxMidtransUrl, midtransBaseUrls } from "../lib/midtrans-urls.js";
 
 const SANDBOX_KEY = "SB-Mid-server-abc123";
@@ -67,5 +72,21 @@ describe("demo config defaults", () => {
   it("parses DEMO_STAFF_EMAILS into trimmed lower-case entries", () => {
     expect(parseDemoStaffEmails(" Demo@x.id, ,b@y.id ")).toEqual(["demo@x.id", "b@y.id"]);
     expect(parseDemoStaffEmails("")).toEqual([]);
+  });
+});
+
+describe("TRUST_PROXY_HOPS", () => {
+  it("must be stated explicitly in production (failure path)", () => {
+    expect(checkTrustProxyHops({ NODE_ENV: "production" })).toContain("must be set in production");
+  });
+
+  it("accepts any explicit value in production, including 0", () => {
+    expect(checkTrustProxyHops({ NODE_ENV: "production", TRUST_PROXY_HOPS: 1 })).toBeNull();
+    expect(checkTrustProxyHops({ NODE_ENV: "production", TRUST_PROXY_HOPS: 0 })).toBeNull();
+  });
+
+  it("defaults to 0 (header ignored) outside production", () => {
+    expect(checkTrustProxyHops({ NODE_ENV: "development" })).toBeNull();
+    expect(config.TRUST_PROXY_HOPS).toBe(0);
   });
 });

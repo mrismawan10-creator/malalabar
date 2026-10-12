@@ -6,7 +6,7 @@ import type { ApiError } from "@malalabar/types";
 import { config, parseDemoStaffEmails } from "./config.js";
 import { AppError } from "./lib/errors.js";
 import { disconnectPrisma, getPrisma } from "./lib/prisma.js";
-import { disconnectRedis, getRedis } from "./lib/redis.js";
+import { disconnectRedis } from "./lib/redis.js";
 import { registerRateLimit } from "./lib/rate-limit.js";
 import type { SocketTokenVerifier } from "./realtime/index.js";
 import { realtimePlugin } from "./realtime/index.js";
@@ -89,15 +89,20 @@ export interface BuildAppOptions {
    *  demo contract test appends a terminal preHandler to prove the guards
    *  let a request through without touching the database. */
   onRoute?: onRouteHookHandler;
+  /** Tests only: rate limiting is off under NODE_ENV=test unless forced on. */
+  rateLimit?: boolean;
+  /** Tests only: overrides TRUST_PROXY_HOPS. */
+  trustProxyHops?: number;
   stageRepository?: StageRepository;
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
     logger: config.NODE_ENV !== "test",
-    // The API always runs behind a proxy (Railway edge / Vercel rewrites), so
-    // request.ip is only meaningful with X-Forwarded-For trusted.
-    trustProxy: true,
+    // Trust exactly the proxies in front of us, never the whole
+    // X-Forwarded-For chain — its leftmost entries are client-controlled and
+    // would let anyone pick their own rate-limit bucket.
+    trustProxy: options.trustProxyHops ?? config.TRUST_PROXY_HOPS,
   });
 
   await app.register(cors, {
@@ -107,8 +112,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
 
   await registerRateLimit(app, {
-    enabled: config.NODE_ENV !== "test",
-    redis: config.NODE_ENV !== "test" ? getRedis() : null,
+    enabled: options.rateLimit ?? config.NODE_ENV !== "test",
   });
 
   app.setNotFoundHandler((_req, reply) => {

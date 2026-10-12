@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import { publicRouteLimit } from "../lib/rate-limit.js";
 import type { KitchenDeviceAuthService } from "../services/kitchen-device-auth.service.js";
 
 const loginSchema = z.object({
@@ -17,7 +18,7 @@ export const kitchenDeviceAuthRoutes: FastifyPluginAsync<Options> = async (
 ) => {
   app.post<{ Body: unknown }>(
     "/auth/kitchen/login",
-    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
+    { config: publicRouteLimit(5) },
     async (request, reply) => {
       const body = loginSchema.parse(request.body);
       const result = await kitchenDeviceAuth.login(body.deviceId, body.token);

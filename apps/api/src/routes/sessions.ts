@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import { publicRouteLimit } from "../lib/rate-limit.js";
 import type { SessionService } from "../services/session.service.js";
 import type { PaymentService } from "../services/payment.service.js";
 import { requireCustomerSession } from "../lib/customer-guard.js";
@@ -28,7 +29,7 @@ export const sessionRoutes: FastifyPluginAsync<Options> = async (
   // table joins the existing session rather than creating one (SDD_Core §5.1).
   app.post(
     "/sessions",
-    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    { config: publicRouteLimit(30) },
     async (request) => {
       const { tableToken } = createBodySchema.parse(request.body);
       return sessionService.bootstrap(tableToken);

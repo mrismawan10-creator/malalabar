@@ -45,7 +45,28 @@ The server derives role/scope from the verified token. **Never** from the body. 
 | 429 | `RATE_LIMITED` — too many requests; retry after the window |
 | 500 | Unexpected — never leak internals |
 
-Rate limits run globally (300/min) and per sensitive route: staff/KDS login 5/min, change-password 10/min, `POST /sessions` 30/min, order submit 30/min, payment initiation 10/min, Midtrans webhook 60/min, payment-status poll 60/min. Buckets are keyed by bearer token when present (so customers behind one NAT do not share a bucket), otherwise by client IP, and are stored in Redis (`skipOnError` fails open if it is down). A 429 always uses the shape below with `code: "RATE_LIMITED"`.
+Rate limits (`apps/api/src/lib/rate-limit.ts`):
+
+| Scope | Limit | Bucket |
+|---|---|---|
+| Every route without its own limit | 300/min | verified identity, else IP |
+| `POST /auth/staff/login` | 5/min | **IP only** |
+| `POST /auth/staff/login` | 10 per 15 min | **per email** (normalised), counted before any lookup |
+| `POST /auth/kitchen/login` | 5/min | **IP only** |
+| `POST /sessions` | 30/min | **IP only** |
+| `POST /webhooks/midtrans` | 60/min | **IP only** |
+| `POST /auth/staff/change-password` | 10/min | verified identity, else IP |
+| `POST /sessions/:id/orders` | 30/min | verified identity, else IP |
+| `POST /sessions/:id/payment` | 10/min | verified identity, else IP |
+| `GET /sessions/:id/payment-status` | 60/min | verified identity, else IP |
+
+- **IP only:** routes reachable without a token ignore the `Authorization` header, so a made-up token can never buy a fresh quota.
+- **Verified identity:** the bearer token's signature is checked (no database read) and the bucket is `staff:<id>`, `kds:<id>` or `session:<id>`; a token that does not verify counts against the client IP. Customers at one table share their session's bucket.
+- **Client IP** is resolved with `TRUST_PROXY_HOPS` (Env_Reference): only that many proxies' `X-Forwarded-For` entries are trusted, so a forged leftmost entry is ignored.
+- **Store:** in memory, per API process — no Redis commands, nothing to fail open. Counters reset on restart; correct for a single instance only (Auth_RBAC_Spec §8.4).
+- Limits are counted on `onRequest`, before the body is parsed and before the guard runs, so refused requests count too.
+
+A 429 always uses the shape below with `code: "RATE_LIMITED"` and a message saying how many seconds to wait. The per-email limit answers identically for registered and unknown emails.
 
 ### 1.3 Pagination (list endpoints)
 

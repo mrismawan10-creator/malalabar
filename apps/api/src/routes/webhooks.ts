@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import { publicRouteLimit } from "../lib/rate-limit.js";
 import type { MidtransWebhookService } from "../services/midtrans-webhook.service.js";
 import { config } from "../config.js";
 
@@ -36,7 +37,7 @@ export const webhookRoutes: FastifyPluginAsync<Options> = async (
    */
   app.post(
     "/webhooks/midtrans",
-    { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
+    { config: publicRouteLimit(60) },
     async (request, reply) => {
       // Validate and parse payload — the signature travels in the body.
       const { signature_key: signature, ...notification } =

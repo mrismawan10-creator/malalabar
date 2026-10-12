@@ -193,7 +193,7 @@ pnpm db:seed                    # settings, stages, superadmin — base data
 pnpm --filter api qr:reissue    # sign the base seed's table tokens
 pnpm --filter api demo:seed     # menu, DEMO table, both demo accounts, 30-day history
 pnpm --filter api demo:qr       # prints the customer URL, writes the QR PNG
-pnpm --filter api set-password -- <superadmin-email> <new-password>
+pnpm --filter api set-password <superadmin-email> <new-password>
 ```
 
 The scripts need the demo API's `JWT_SECRET` (QR tokens are signed with it),

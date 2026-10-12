@@ -179,7 +179,7 @@ Supabase project.
    pnpm --filter api qr:reissue
    pnpm --filter api demo:seed
    pnpm --filter api demo:qr
-   pnpm --filter api set-password -- <superadmin-email> <new-strong-password>
+   pnpm --filter api set-password <superadmin-email> <new-strong-password>
    ```
    - `migrate deploy` prints `Datasource "db": … at "<host>"` before doing
      anything — confirm it is the new project; Ctrl+C otherwise.

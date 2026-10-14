@@ -22,6 +22,8 @@ export function createPaymentReconcileService(deps: {
   prisma: PrismaClient;
   midtrans: MidtransService;
   gateway: RealtimeGateway;
+  /** Demo Mode: passed through to applyPaymentOutcome. */
+  demoAutoServe?: boolean;
   afterMins: number;
   warn?: (message: string) => void;
 }): PaymentReconcileService {

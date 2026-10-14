@@ -33,6 +33,8 @@ export interface MidtransWebhookService {
 export function createMidtransWebhookService(deps: {
   prisma: PrismaClient;
   gateway: RealtimeGateway;
+  /** Demo Mode: passed through to applyPaymentOutcome. */
+  demoAutoServe?: boolean;
   warn?: (message: string) => void;
 }): MidtransWebhookService {
   return {

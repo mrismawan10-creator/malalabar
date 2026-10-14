@@ -116,6 +116,26 @@ Every staff socket handshake re-checks the account (unknown, suspended or
 locked out → refused), and suspending an account disconnects its open sockets
 — the same rules as HTTP.
 
+### Auto-serve after payment (kitchen and serving skipped)
+A reviewer usually has no KDS device, so with `DEMO_MODE=true` a confirmed
+payment finishes the session's orders
+(`apps/api/src/services/demo-auto-serve.service.ts`):
+
+1. Payment becomes PAID — cashier confirms CASH/CARD, or the Midtrans sandbox
+   webhook / reconciliation settles ONLINE.
+2. Every non-rejected, non-cancelled batch not yet SERVED jumps straight to
+   **SERVED** — no cashier approval, no kitchen, no *Sajikan* click. Each move
+   writes `OrderStatusHistory` for every anchor it skips (ACCEPTED, READY,
+   SERVED) and an audit row `DEMO_AUTO_SERVE` (actor = the confirming
+   cashier, or `SYSTEM` for online), and emits `order:status` before
+   `payment:confirmed`.
+3. The customer's tracking screen shows every batch as *Disajikan* /
+   *Selesai*; the table drops off the cashier's *Meja Aktif*.
+
+With `DEMO_MODE` off this code never runs: payment keeps the normal flow
+(cash/card pay-first approves → kitchen → READY → serve; online leaves the
+orders to the cashier and kitchen).
+
 ### Public DEMO table
 Table `DEMO` (area `Demo`) with a normally signed QR token. Its sessions
 follow the usual inactivity timeout (`SystemSettings.sessionTimeoutMins`,
@@ -246,9 +266,9 @@ Send reviewers:
 > (`https://simulator.sandbox.midtrans.com` at the time of writing) and which
 > payment methods your sandbox merchant has enabled.
 
-Suggested walkthrough: customer orders → cashier approves → kitchen advances →
-cashier serves → pay (cash at Kasir, or online via sandbox) → admin opens
-Laporan.
+Suggested walkthrough: customer orders → pay (cash at Kasir, or online via
+sandbox) → orders finish automatically (§1, no kitchen or serving needed) →
+customer sees *Selesai* → admin opens Laporan.
 
 ---
 

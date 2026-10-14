@@ -36,6 +36,7 @@ AWAITING_CONFIRMATION → ACCEPTED → IN_PROGRESS → [CUSTOM…] → READY →
 | IN_PROGRESS | next active stage | `POST /kds/orders/:id/advance` | Kitchen | Next active stage by sortOrder exists and ≤ READY |
 | CUSTOM (any) | next active stage | `POST /kds/orders/:id/advance` | Kitchen | Same as above |
 | READY | SERVED | `POST /cashier/orders/:id/serve` | Cashier | Current = READY |
+| AWAITING_CONFIRMATION / ACCEPTED / IN_PROGRESS / CUSTOM / READY | SERVED | Payment reaches PAID (cashier confirm or Midtrans webhook/reconcile) — side effect | Cashier / System | **Demo Mode only** (`DEMO_MODE=true`, Demo_Mode.md §1). Never active in production |
 | any non-terminal | CANCELLED | `POST /superadmin/orders/:id/cancel` | Superadmin | Reason required; written to audit log |
 
 REJECTED and CANCELLED are terminal. READY is the kitchen-terminal (no further kitchen action; the order is now part of the payable bill). SERVED is the order-terminal: the cashier sets it when the food reaches the table. Because payment may settle the session before food arrives, the customer's tracking screen stays readable on a PAID session (`GET /sessions/:id/orders` only) until every order is SERVED; ordering and payment stay locked.

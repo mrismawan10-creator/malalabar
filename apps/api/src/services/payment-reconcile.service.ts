@@ -23,7 +23,7 @@ export function createPaymentReconcileService(deps: {
   midtrans: MidtransService;
   gateway: RealtimeGateway;
   /** Demo Mode: passed through to applyPaymentOutcome. */
-  demoAutoReady?: boolean;
+  demoAutoServe?: boolean;
   afterMins: number;
   warn?: (message: string) => void;
 }): PaymentReconcileService {

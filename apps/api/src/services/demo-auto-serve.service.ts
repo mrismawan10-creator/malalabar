@@ -1,49 +1,53 @@
 import type { PrismaClient, StageSemantic } from "@malalabar/db";
 import type { RealtimeGateway } from "../realtime/gateway.js";
 
-/** Stages the kitchen would still have to work through. */
-const PRE_READY: StageSemantic[] = ["AWAITING_CONFIRMATION", "ACCEPTED", "IN_PROGRESS", "CUSTOM"];
+/** Every stage a live batch can be in before SERVED. */
+const PRE_SERVED: StageSemantic[] = [
+  "AWAITING_CONFIRMATION",
+  "ACCEPTED",
+  "IN_PROGRESS",
+  "CUSTOM",
+  "READY",
+];
 
 /**
- * Demo Mode only (docs/Demo_Mode.md §1 "Auto-ready after payment"): once a
- * session is PAID, every live batch that has not reached READY jumps straight
- * to READY — no cashier approval, no kitchen — so a reviewer can go from
- * paying to "Sajikan" at the cashier without a KDS device. Callers gate this
+ * Demo Mode only (docs/Demo_Mode.md §1 "Auto-serve after payment"): once a
+ * session is PAID, every live batch that is not yet SERVED is marked SERVED —
+ * no cashier approval, no kitchen, no "Sajikan" click — so a reviewer sees the
+ * order finish on the customer screen right after paying. Callers gate this
  * on DEMO_MODE; outside the demo the normal State_Machine §1.2 flow applies.
  *
  * Each move is a conditional update on the stage it was read at, so a
- * concurrent kitchen advance or cashier approve wins cleanly. Every move
- * writes OrderStatusHistory + an audit row and emits order:status (session,
- * cashier, KDS — so a card already on the KDS drops off) and order:ready.
+ * concurrent kitchen advance or cashier action wins cleanly. Every move
+ * writes OrderStatusHistory for each skipped anchor (ACCEPTED, READY, SERVED)
+ * plus an audit row, and emits order:status (session, cashier, KDS — so a card
+ * already on the KDS drops off).
  *
  * `staffId` is the cashier who confirmed CASH/CARD; null for the Midtrans
  * webhook / reconciliation, which act as SYSTEM. Returns how many moved.
  */
-export async function demoAutoReadySession(
+export async function demoAutoServeSession(
   deps: { prisma: PrismaClient; gateway: RealtimeGateway },
   params: { sessionId: string; staffId: string | null; ipAddress?: string },
 ): Promise<number> {
   const { prisma, gateway } = deps;
   const { sessionId, staffId, ipAddress } = params;
 
-  const [readyStage, acceptedStage] = await Promise.all([
-    prisma.orderStatusStage.findFirst({
-      where: { semanticKey: "READY", isActive: true },
-      select: { id: true, label: true, semanticKey: true, sortOrder: true },
-    }),
-    prisma.orderStatusStage.findFirst({
-      where: { semanticKey: "ACCEPTED", isActive: true },
-      select: { id: true },
-    }),
-  ]);
-  if (!readyStage || !acceptedStage) return 0;
+  const stages = await prisma.orderStatusStage.findMany({
+    where: { semanticKey: { in: ["ACCEPTED", "READY", "SERVED"] }, isActive: true },
+    select: { id: true, label: true, semanticKey: true, sortOrder: true },
+  });
+  const acceptedStage = stages.find((s) => s.semanticKey === "ACCEPTED");
+  const readyStage = stages.find((s) => s.semanticKey === "READY");
+  const servedStage = stages.find((s) => s.semanticKey === "SERVED");
+  if (!acceptedStage || !readyStage || !servedStage) return 0;
 
   const orders = await prisma.order.findMany({
     where: {
       sessionId,
       rejected: false,
       cancelled: false,
-      currentStage: { semanticKey: { in: PRE_READY } },
+      currentStage: { semanticKey: { in: PRE_SERVED } },
     },
     orderBy: { batchNumber: "asc" },
     select: {
@@ -64,6 +68,13 @@ export async function demoAutoReadySession(
     const wasAwaiting = from === "AWAITING_CONFIRMATION";
     const now = new Date();
 
+    // Keep the trail legal: record each anchor the batch skips past.
+    const trail = [
+      ...(wasAwaiting ? [acceptedStage.id] : []),
+      ...(from !== "READY" ? [readyStage.id] : []),
+      servedStage.id,
+    ];
+
     const applied = await prisma.$transaction(async (tx) => {
       const updated = await tx.order.updateMany({
         where: {
@@ -73,28 +84,24 @@ export async function demoAutoReadySession(
           cancelled: false,
         },
         data: {
-          currentStageId: readyStage.id,
+          currentStageId: servedStage.id,
           acceptedAt: order.acceptedAt ?? now,
           ...(wasAwaiting && staffId ? { approvedById: staffId } : {}),
         },
       });
       if (updated.count === 0) return false;
 
-      // Keep the trail legal: an awaiting batch is accepted, then made ready.
-      if (wasAwaiting) {
+      for (const stageId of trail) {
         await tx.orderStatusHistory.create({
-          data: { orderId: order.id, stageId: acceptedStage.id, actorType, actorId: staffId },
+          data: { orderId: order.id, stageId, actorType, actorId: staffId },
         });
       }
-      await tx.orderStatusHistory.create({
-        data: { orderId: order.id, stageId: readyStage.id, actorType, actorId: staffId },
-      });
 
       await tx.auditLog.create({
         data: {
           actorType,
           actorId: staffId,
-          action: "DEMO_AUTO_READY",
+          action: "DEMO_AUTO_SERVE",
           entityType: "ORDER",
           entityId: order.id,
           metadata: {
@@ -110,19 +117,13 @@ export async function demoAutoReadySession(
     if (!applied) continue;
 
     moved += 1;
-    const tableNumber = order.session.table.number;
     gateway.orderStatusChanged({
       orderId: order.id,
       sessionId,
-      tableNumber,
+      tableNumber: order.session.table.number,
       batchNumber: order.batchNumber,
-      stage: readyStage,
+      stage: servedStage,
       updatedAt: now.toISOString(),
-    });
-    gateway.orderReady({
-      orderId: order.id,
-      tableNumber,
-      batchNumber: order.batchNumber,
     });
   }
 

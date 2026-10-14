@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient } from "@malalabar/db";
 import type { RealtimeGateway } from "../realtime/gateway.js";
 import type { PaymentOutcome } from "../lib/payment-outcome.js";
-import { demoAutoReadySession } from "./demo-auto-ready.service.js";
+import { demoAutoServeSession } from "./demo-auto-serve.service.js";
 
 export interface PaymentApplyTarget {
   id: string;
@@ -24,8 +24,8 @@ export async function applyPaymentOutcome(
   deps: {
     prisma: PrismaClient;
     gateway: RealtimeGateway;
-    /** Demo Mode: a PAID outcome jumps the session's batches to READY. */
-    demoAutoReady?: boolean;
+    /** Demo Mode: a PAID outcome serves the session's batches at once. */
+    demoAutoServe?: boolean;
   },
   params: {
     payment: PaymentApplyTarget;
@@ -65,8 +65,8 @@ export async function applyPaymentOutcome(
   }
 
   if (outcome === "PAID" && payment.session.status === "OPEN") {
-    if (deps.demoAutoReady) {
-      await demoAutoReadySession(deps, {
+    if (deps.demoAutoServe) {
+      await demoAutoServeSession(deps, {
         sessionId: payment.sessionId,
         staffId: null,
       });

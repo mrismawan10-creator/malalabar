@@ -189,7 +189,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   );
 
   // Demo Mode policy, read by requireStaffRole, staff login and the
-  // post-payment auto-ready in the cashier/Midtrans paths (docs/Demo_Mode.md).
+  // post-payment auto-serve in the cashier/Midtrans paths (docs/Demo_Mode.md).
   const demoPolicy: DemoPolicy = options.demoPolicy ?? {
     enabled: config.DEMO_MODE,
     staffEmails: new Set(parseDemoStaffEmails(config.DEMO_STAFF_EMAILS)),
@@ -279,7 +279,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       orderRepository,
       prisma: prisma!,
       gateway: app.gateway,
-      demoAutoReady: demoPolicy.enabled,
+      demoAutoServe: demoPolicy.enabled,
     }),
     kdsService: createKdsService({
       orderRepository,
@@ -293,7 +293,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     midtransWebhook: createMidtransWebhookService({
       prisma: prisma!,
       gateway: app.gateway,
-      demoAutoReady: demoPolicy.enabled,
+      demoAutoServe: demoPolicy.enabled,
       warn: (message) => app.log.warn(message),
     }),
     menuAdminService: createMenuAdminService({
@@ -392,7 +392,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       prisma: prisma!,
       midtrans: midtransService,
       gateway: app.gateway,
-      demoAutoReady: demoPolicy.enabled,
+      demoAutoServe: demoPolicy.enabled,
       afterMins: config.RECONCILE_PENDING_AFTER_MINS,
       warn: (message) => app.log.warn(message),
     });

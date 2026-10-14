@@ -11,6 +11,7 @@ import { AppError } from "../lib/errors.js";
 import type { OrderRepository } from "../repositories/order.repository.js";
 import type { PrismaClient } from "@malalabar/db";
 import type { RealtimeGateway } from "../realtime/gateway.js";
+import { demoAutoReadySession } from "./demo-auto-ready.service.js";
 
 export interface CashierService {
   getPendingOrders(): Promise<PendingOrdersResponse>;
@@ -43,6 +44,8 @@ export function createCashierService(deps: {
   orderRepository: OrderRepository;
   prisma: PrismaClient;
   gateway: RealtimeGateway;
+  /** Demo Mode: a confirmed payment jumps the session's batches to READY. */
+  demoAutoReady?: boolean;
 }): CashierService {
   const service: CashierService = {
     async getPendingOrders() {
@@ -340,6 +343,16 @@ export function createCashierService(deps: {
           "Pembayaran sudah diproses sebelumnya",
           409,
         );
+      }
+
+      if (deps.demoAutoReady) {
+        // Demo Mode: skip approval and the kitchen — every batch goes
+        // straight to READY so the cashier can serve it right away.
+        await demoAutoReadySession(deps, {
+          sessionId: payment.sessionId,
+          staffId,
+          ipAddress,
+        });
       }
 
       // Pay-first flow: settling the bill is the cashier's go-ahead for the

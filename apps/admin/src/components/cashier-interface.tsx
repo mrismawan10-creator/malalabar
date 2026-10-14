@@ -92,10 +92,11 @@ export function CashierInterface() {
         fetchPendingOrders();
       });
 
-      // Order status changed: update active tables & remove from pending if approved
+      // Order status changed: update active tables & remove from pending once
+      // past approval (approved, or auto-readied after payment in Demo Mode)
       socket.on("order:status", (payload: any) => {
         fetchActiveTables();
-        if (payload.stage.semanticKey === "ACCEPTED") {
+        if (payload.stage.semanticKey !== "AWAITING_CONFIRMATION") {
           setPendingOrders((prev) => prev.filter((o) => o.id !== payload.orderId));
         }
       });
